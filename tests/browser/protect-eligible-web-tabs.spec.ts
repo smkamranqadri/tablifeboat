@@ -87,10 +87,10 @@ test("protects existing eligible Web Tabs when the extension is installed", asyn
     await expect(popup.getByRole("heading", { name: "Tab Recovery" })).toBeVisible();
     await expect(popup.getByText("3 open protected tabs")).toBeVisible();
 
-    const canAccessPrivateTabs = await serviceWorker.evaluate(
+    const hasIncognitoAccess = await serviceWorker.evaluate(
       () => chrome.extension.isAllowedIncognitoAccess(),
     );
-    expect(canAccessPrivateTabs).toBe(false);
+    expect(hasIncognitoAccess).toBe(false);
 
     await expect
       .poll(async () =>
