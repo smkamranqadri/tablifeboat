@@ -6,6 +6,7 @@
     "build": "tsc && cp src/manifest.json src/popup.html src/popup.css dist/",
     "typecheck": "tsc --noEmit",
     "test:browser": "npm run build && playwright test",
+    "test:durability": "npm run build && playwright test tests/browser/recovery-durability.spec.ts",
     "test": "npm run test:browser"
   },
   "devDependencies": {

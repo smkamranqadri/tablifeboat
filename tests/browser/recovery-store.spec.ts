@@ -1,5 +1,54 @@
 import { expect, test } from "@playwright/test";
 
+test("does not resolve a mutation until its serialized persistent write completes", async () => {
+  const originalChrome = globalThis.chrome;
+  let releaseWrite!: () => void;
+  let markWriteStarted!: () => void;
+  const writeCanFinish = new Promise<void>((resolve) => {
+    releaseWrite = resolve;
+  });
+  const writeStarted = new Promise<void>((resolve) => {
+    markWriteStarted = resolve;
+  });
+
+  globalThis.chrome = {
+    storage: {
+      local: {
+        get: async () => ({}),
+        set: async () => {
+          markWriteStarted();
+          await writeCanFinish;
+        },
+      },
+    },
+  } as typeof chrome;
+
+  try {
+    const { RecoveryStore } = await import("../../dist/recovery-store.js");
+    const store = new RecoveryStore();
+    let mutationResolved = false;
+    const mutation = store.update((set) => {
+      set.windows.push({
+        groupingId: "durable-grouping",
+        browserWindowId: 1,
+        tabs: [],
+      });
+    });
+    void mutation.then(() => {
+      mutationResolved = true;
+    });
+
+    await writeStarted;
+    expect(mutationResolved).toBe(false);
+
+    releaseWrite();
+    await mutation;
+    expect(mutationResolved).toBe(true);
+  } finally {
+    globalThis.chrome = originalChrome;
+  }
+});
+
 test("awaits async mutators before the next queued update", async () => {
   const originalChrome = globalThis.chrome;
   let storedRecoverySet: unknown;

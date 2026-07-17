@@ -22,6 +22,7 @@ import {
 import { isWebTab, startTabTracking } from "./tab-tracking.js";
 
 const store = new RecoveryStore();
+const recoveryDataAtWorkerStart = store.read();
 let installationCapture = Promise.resolve<RecoverySet | undefined>(undefined);
 const isAutomatedTestBuild =
   chrome.runtime.getManifest().version_name === "automated-test";
@@ -150,7 +151,9 @@ chrome.runtime.onInstalled.addListener((details) => {
     return;
   }
 
-  installationCapture = captureEligibleWebTabs();
+  installationCapture = recoveryDataAtWorkerStart.then((existing) =>
+    existing.windows.length === 0 ? captureEligibleWebTabs() : existing,
+  );
 });
 
 chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) => {
