@@ -1,92 +1,64 @@
-interface TabPlacement {
-  windowId: number;
-  index: number;
-  pinned: boolean;
-}
+import {
+  createDurableId,
+  type RecoverySet,
+  type TrackedTab,
+} from "./recovery-model.js";
+import { RecoveryStore } from "./recovery-store.js";
+import { isWebTab, startTabTracking } from "./tab-tracking.js";
 
-interface TrackedTab {
-  browserTabId: number;
-  title: string;
-  url: string;
-  placement: TabPlacement;
-}
+const store = new RecoveryStore();
+let installationCapture = Promise.resolve<RecoverySet | undefined>(undefined);
 
-interface WindowGrouping {
-  windowId: number;
-  tabs: TrackedTab[];
-}
-
-interface RecoverySet {
-  version: 1;
-  windows: WindowGrouping[];
-}
-
-const EMPTY_RECOVERY_SET: RecoverySet = {
-  version: 1,
-  windows: [],
-};
-
-let installationCapture = Promise.resolve();
-
-function isWebTab(tab: chrome.tabs.Tab): tab is chrome.tabs.Tab & {
-  id: number;
-  url: string;
-} {
-  if (tab.incognito || tab.id === undefined || tab.url === undefined) {
-    return false;
-  }
-
-  try {
-    const protocol = new URL(tab.url).protocol;
-    return protocol === "http:" || protocol === "https:";
-  } catch {
-    return false;
-  }
-}
-
-async function captureEligibleWebTabs(): Promise<void> {
+async function captureEligibleWebTabs(): Promise<RecoverySet> {
   const tabs = await chrome.tabs.query({ windowType: "normal" });
-  const windows = new Map<number, TrackedTab[]>();
 
-  for (const tab of tabs) {
-    if (!isWebTab(tab)) {
-      continue;
+  return store.update((set) => {
+    const windows = new Map<number, TrackedTab[]>();
+    const existingTabs = new Map(
+      set.windows.flatMap((window) =>
+        window.tabs.map((tab) => [tab.browserTabId, tab] as const),
+      ),
+    );
+    const existingGroupings = new Map(
+      set.windows.map((window) => [window.windowId, window] as const),
+    );
+
+    for (const tab of tabs) {
+      if (!isWebTab(tab)) {
+        continue;
+      }
+
+      const trackedTab: TrackedTab = {
+        recordId: existingTabs.get(tab.id)?.recordId ?? createDurableId(),
+        browserTabId: tab.id,
+        title: tab.title ?? tab.url,
+        url: tab.url,
+        placement: {
+          windowId: tab.windowId,
+          index: tab.index,
+          pinned: tab.pinned,
+        },
+      };
+      const windowTabs = windows.get(tab.windowId) ?? [];
+      windowTabs.push(trackedTab);
+      windows.set(tab.windowId, windowTabs);
     }
 
-    const trackedTab: TrackedTab = {
-      browserTabId: tab.id,
-      title: tab.title ?? tab.url,
-      url: tab.url,
-      placement: {
-        windowId: tab.windowId,
-        index: tab.index,
-        pinned: tab.pinned,
-      },
-    };
-    const windowTabs = windows.get(tab.windowId) ?? [];
-    windowTabs.push(trackedTab);
-    windows.set(tab.windowId, windowTabs);
-  }
-
-  const recoverySet: RecoverySet = {
-    version: 1,
-    windows: Array.from(windows, ([windowId, windowTabs]) => ({
+    set.windows = Array.from(windows, ([windowId, windowTabs]) => ({
+      groupingId: existingGroupings.get(windowId)?.groupingId ?? createDurableId(),
       windowId,
       tabs: windowTabs.sort((left, right) => left.placement.index - right.placement.index),
-    })),
-  };
-
-  await chrome.storage.local.set({ recoverySet });
+    }));
+  });
 }
 
 async function getProtectedTabCount(): Promise<number> {
   await installationCapture;
-  const { recoverySet = EMPTY_RECOVERY_SET } = (await chrome.storage.local.get(
-    "recoverySet",
-  )) as { recoverySet?: RecoverySet };
-
+  const recoverySet = await store.read();
   return recoverySet.windows.reduce((count, window) => count + window.tabs.length, 0);
 }
+
+startTabTracking(store);
 
 chrome.runtime.onInstalled.addListener((details) => {
   if (details.reason !== "install") {

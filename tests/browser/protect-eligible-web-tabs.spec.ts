@@ -3,27 +3,8 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { chromium, expect, test, type BrowserContext } from "@playwright/test";
-
-interface TrackedTab {
-  browserTabId: number;
-  title: string;
-  url: string;
-  placement: {
-    windowId: number;
-    index: number;
-    pinned: boolean;
-  };
-}
-
-interface RecoverySet {
-  version: 1;
-  windows: WindowGrouping[];
-}
-
-interface WindowGrouping {
-  windowId: number;
-  tabs: TrackedTab[];
-}
+import { launchExtensionProfile, type ExtensionProfile } from "./extension-profile";
+import { readRecoverySet } from "./recovery-data";
 
 let server: Server;
 let origin: string;
@@ -53,62 +34,44 @@ test.afterAll(async () => {
 
 test("protects existing eligible Web Tabs when the extension is installed", async () => {
   const profileDirectory = await mkdtemp(path.join(tmpdir(), "tab-recovery-profile-"));
-  const extensionDirectory = path.resolve("dist");
-  let context: BrowserContext | undefined;
+  let setupContext: BrowserContext | undefined;
+  let extension: ExtensionProfile | undefined;
 
   try {
-    context = await chromium.launchPersistentContext(profileDirectory, {
+    setupContext = await chromium.launchPersistentContext(profileDirectory, {
       headless: true,
       channel: "chromium",
     });
-    const [initialPage] = context.pages();
+    const [initialPage] = setupContext.pages();
     await initialPage.goto(`${origin}/shared`);
-    await (await context.newPage()).goto(`${origin}/shared`);
-    await (await context.newPage()).goto(`${origin}/distinct`);
-    await context.newPage();
-    await context.close();
+    await (await setupContext.newPage()).goto(`${origin}/shared`);
+    await (await setupContext.newPage()).goto(`${origin}/distinct`);
+    await setupContext.newPage();
+    await setupContext.close();
+    setupContext = undefined;
 
-    context = await chromium.launchPersistentContext(profileDirectory, {
-      headless: true,
-      channel: "chromium",
-      args: [
-        `--disable-extensions-except=${extensionDirectory}`,
-        `--load-extension=${extensionDirectory}`,
-        "--restore-last-session",
-      ],
+    extension = await launchExtensionProfile({
+      profileDirectory,
+      restoreLastSession: true,
     });
 
-    const serviceWorker =
-      context.serviceWorkers()[0] ?? (await context.waitForEvent("serviceworker"));
-    const extensionId = new URL(serviceWorker.url()).hostname;
-    const popup = await context.newPage();
-    await popup.goto(`chrome-extension://${extensionId}/popup.html`);
+    const popup = await extension.openPopup();
 
     await expect(popup.getByRole("heading", { name: "Tab Recovery" })).toBeVisible();
     await expect(popup.getByText("3 open protected tabs")).toBeVisible();
 
-    const hasIncognitoAccess = await serviceWorker.evaluate(
+    const hasIncognitoAccess = await extension.serviceWorker.evaluate(
       () => chrome.extension.isAllowedIncognitoAccess(),
     );
     expect(hasIncognitoAccess).toBe(false);
 
     await expect
       .poll(async () =>
-        serviceWorker.evaluate(async () => {
-          const { recoverySet } = (await chrome.storage.local.get("recoverySet")) as {
-            recoverySet?: RecoverySet;
-          };
-          return recoverySet;
-        }),
+        readRecoverySet(extension!.serviceWorker),
       )
       .toBeDefined();
 
-    const recoverySet = await serviceWorker.evaluate(async () => {
-      const stored = (await chrome.storage.local.get("recoverySet")) as {
-        recoverySet: RecoverySet;
-      };
-      return stored.recoverySet;
-    });
+    const recoverySet = (await readRecoverySet(extension.serviceWorker))!;
     const trackedTabs = recoverySet.windows.flatMap((window) => window.tabs);
 
     expect(recoverySet.version).toBe(1);
@@ -128,7 +91,11 @@ test("protects existing eligible Web Tabs when the extension is installed", asyn
       ),
     ).toBe(true);
   } finally {
-    await context?.close();
-    await rm(profileDirectory, { recursive: true, force: true });
+    await setupContext?.close();
+    if (extension) {
+      await extension.close();
+    } else {
+      await rm(profileDirectory, { recursive: true, force: true });
+    }
   }
 });
