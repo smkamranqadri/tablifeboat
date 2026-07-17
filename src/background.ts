@@ -103,6 +103,20 @@ async function restoreAllWindowGroupings() {
   return result;
 }
 
+async function forgetMissingTab(recordId: string) {
+  await installationCapture;
+  const result = await store.forgetTab(recordId);
+  await synchronizeRecoveryBadge(await store.read());
+  return result;
+}
+
+async function forgetMissingWindowGrouping(groupingId: string) {
+  await installationCapture;
+  const result = await store.forgetWindowGrouping(groupingId);
+  await synchronizeRecoveryBadge(await store.read());
+  return result;
+}
+
 startTabTracking(store);
 
 const startupReconciliation = scheduleStartupReconciliation(
@@ -175,6 +189,24 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) =
     typeof message.groupingId === "string"
   ) {
     void restoreOneWindowGrouping(message.groupingId).then(sendResponse);
+    return true;
+  }
+
+  if (
+    message.type === "forgetTab" &&
+    "recordId" in message &&
+    typeof message.recordId === "string"
+  ) {
+    void forgetMissingTab(message.recordId).then(sendResponse);
+    return true;
+  }
+
+  if (
+    message.type === "forgetWindowGrouping" &&
+    "groupingId" in message &&
+    typeof message.groupingId === "string"
+  ) {
+    void forgetMissingWindowGrouping(message.groupingId).then(sendResponse);
     return true;
   }
 

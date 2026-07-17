@@ -15,6 +15,19 @@ interface RecoverySummary {
   missingWindowGroupings: WindowGroupingSummary[];
 }
 
+interface ForgetResult {
+  forgotten: boolean;
+  reason?: string;
+}
+
+async function sendForgetRequest(message: object): Promise<void> {
+  const result = (await chrome.runtime.sendMessage(message)) as ForgetResult;
+  if (!result.forgotten) {
+    throw new Error(`Recovery Data was not forgotten: ${result.reason ?? "unknown"}`);
+  }
+  await renderRecoverySummary();
+}
+
 async function renderRecoverySummary(): Promise<void> {
   const count = document.querySelector<HTMLParagraphElement>("#protected-count");
   const restoreAllButton = document.querySelector<HTMLButtonElement>("#restore-all");
@@ -43,14 +56,36 @@ async function renderRecoverySummary(): Promise<void> {
       const list = document.createElement("ul");
       for (const tab of grouping.tabs) {
         const item = document.createElement("li");
+        const tabDetails = document.createElement("span");
+        tabDetails.className = "tab-details";
         const link = document.createElement("a");
         link.href = tab.url;
         link.textContent = tab.title;
         link.title = tab.url;
+        tabDetails.append(link);
+
+        const forgetTabButton = document.createElement("button");
+        forgetTabButton.type = "button";
+        forgetTabButton.className = "forget-tab";
+        forgetTabButton.textContent = "Forget Tab";
+        forgetTabButton.setAttribute("aria-label", `Forget Tab: ${tab.title}`);
+        forgetTabButton.addEventListener("click", async () => {
+          forgetTabButton.disabled = true;
+          try {
+            await sendForgetRequest({ type: "forgetTab", recordId: tab.recordId });
+          } catch (error: unknown) {
+            forgetTabButton.disabled = false;
+            console.error("Failed to forget Missing Tab", error);
+          }
+        });
+
+        item.append(tabDetails, forgetTabButton);
         list.append(item);
-        item.append(link);
       }
       section.append(list);
+
+      const actions = document.createElement("div");
+      actions.className = "window-actions";
 
       const restoreButton = document.createElement("button");
       restoreButton.type = "button";
@@ -70,7 +105,30 @@ async function renderRecoverySummary(): Promise<void> {
           console.error("Failed to restore Window Grouping", error);
         }
       });
-      section.append(restoreButton);
+      actions.append(restoreButton);
+
+      const forgetWindowButton = document.createElement("button");
+      forgetWindowButton.type = "button";
+      forgetWindowButton.className = "forget-window";
+      forgetWindowButton.textContent = "Forget Window";
+      forgetWindowButton.addEventListener("click", async () => {
+        if (!window.confirm("Permanently forget this Window Grouping and all of its tabs?")) {
+          return;
+        }
+
+        forgetWindowButton.disabled = true;
+        try {
+          await sendForgetRequest({
+            type: "forgetWindowGrouping",
+            groupingId: grouping.groupingId,
+          });
+        } catch (error: unknown) {
+          forgetWindowButton.disabled = false;
+          console.error("Failed to forget Window Grouping", error);
+        }
+      });
+      actions.append(forgetWindowButton);
+      section.append(actions);
       return section;
     }),
   );
