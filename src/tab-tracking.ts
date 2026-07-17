@@ -48,10 +48,10 @@ export function startTabTracking(store: RecoveryStore): void {
     );
   });
 
-  chrome.tabs.onAttached.addListener((tabId, attachInfo) => {
+  chrome.tabs.onAttached.addListener((tabId) => {
     handleListenerOperation(
       "Tab Placement attachment",
-      attachTrackedTab(store, tabId, attachInfo.newWindowId),
+      attachTrackedTab(store, tabId),
     );
   });
 
@@ -200,14 +200,16 @@ function reindexTrackedWindow(
 function attachTrackedTab(
   store: RecoveryStore,
   browserTabId: number,
-  browserWindowId: number,
 ): Promise<RecoverySet> {
   return store.update(async (set) => {
-    const windowTabs = await getNormalWindowTabs(browserWindowId);
-    if (!windowTabs) {
-      removeTrackedTab(set, browserTabId);
+    let browserTab: chrome.tabs.Tab;
+    try {
+      browserTab = await chrome.tabs.get(browserTabId);
+    } catch {
       return;
     }
+
+    const windowTabs = await getNormalWindowTabs(browserTab.windowId);
 
     const sourceGrouping = set.windows.find((grouping) =>
       grouping.tabs.some((tab) => tab.browserTabId === browserTabId),
@@ -215,12 +217,14 @@ function attachTrackedTab(
     const trackedTab = sourceGrouping?.tabs.find(
       (tab) => tab.browserTabId === browserTabId,
     );
-    const browserTab = windowTabs.find((tab) => tab.id === browserTabId);
 
-    if (!sourceGrouping || !trackedTab || !browserTab || !isWebTab(browserTab)) {
+    if (!windowTabs || !isWebTab(browserTab)) {
       if (trackedTab) {
         removeTrackedTab(set, browserTabId);
       }
+      return;
+    }
+    if (!sourceGrouping || !trackedTab) {
       return;
     }
 
@@ -228,7 +232,7 @@ function attachTrackedTab(
       (tab) => tab.browserTabId !== browserTabId,
     );
 
-    const destinationGrouping = getOrCreateWindowGrouping(set, browserWindowId);
+    const destinationGrouping = getOrCreateWindowGrouping(set, browserTab.windowId);
 
     trackedTab.title = browserTab.title ?? browserTab.url;
     trackedTab.url = browserTab.url;
@@ -238,7 +242,7 @@ function attachTrackedTab(
     };
     destinationGrouping.tabs.push(trackedTab);
     set.windows = set.windows.filter((grouping) => grouping.tabs.length > 0);
-    reindexWindowGrouping(set, browserWindowId, windowTabs);
+    reindexWindowGrouping(set, browserTab.windowId, windowTabs);
   });
 }
 
