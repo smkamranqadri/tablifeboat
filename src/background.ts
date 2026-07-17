@@ -11,14 +11,14 @@ interface TrackedTab {
   placement: TabPlacement;
 }
 
-interface RecoveryWindow {
+interface WindowGrouping {
   windowId: number;
   tabs: TrackedTab[];
 }
 
 interface RecoverySet {
   version: 1;
-  windows: RecoveryWindow[];
+  windows: WindowGrouping[];
 }
 
 const EMPTY_RECOVERY_SET: RecoverySet = {
@@ -88,7 +88,11 @@ async function getProtectedTabCount(): Promise<number> {
   return recoverySet.windows.reduce((count, window) => count + window.tabs.length, 0);
 }
 
-chrome.runtime.onInstalled.addListener(() => {
+chrome.runtime.onInstalled.addListener((details) => {
+  if (details.reason !== "install") {
+    return;
+  }
+
   installationCapture = captureEligibleWebTabs();
 });
 

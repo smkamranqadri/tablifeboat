@@ -17,10 +17,12 @@ interface TrackedTab {
 
 interface RecoverySet {
   version: 1;
-  windows: Array<{
-    windowId: number;
-    tabs: TrackedTab[];
-  }>;
+  windows: WindowGrouping[];
+}
+
+interface WindowGrouping {
+  windowId: number;
+  tabs: TrackedTab[];
 }
 
 let server: Server;
