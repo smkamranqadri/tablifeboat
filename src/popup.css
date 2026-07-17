@@ -44,3 +44,17 @@ li + li {
 a {
   color: inherit;
 }
+
+.restore-window {
+  margin-top: 0.75rem;
+  border: 1px solid currentColor;
+  border-radius: 0.375rem;
+  padding: 0.375rem 0.625rem;
+  font: inherit;
+  cursor: pointer;
+}
+
+.restore-window:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}

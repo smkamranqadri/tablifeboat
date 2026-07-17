@@ -93,8 +93,13 @@ function updateTrackedTab(
 ): Promise<RecoverySet> {
   return store.update(async (set) => {
     const windowTabs = await getNormalWindowTabs(tab.windowId);
+    const existing = set.windows
+      .flatMap((window) => window.tabs)
+      .find((trackedTab) => trackedTab.browserTabId === tab.id);
     if (!windowTabs || !isWebTab(tab)) {
-      if (tab.id !== undefined) {
+      const isPendingManualRecovery =
+        existing !== undefined && tab.pendingUrl === existing.url;
+      if (tab.id !== undefined && !isPendingManualRecovery) {
         removeTrackedTab(set, tab.id);
       }
       if (windowTabs && reindexWindow) {
@@ -102,10 +107,6 @@ function updateTrackedTab(
       }
       return;
     }
-
-    const existing = set.windows
-      .flatMap((window) => window.tabs)
-      .find((trackedTab) => trackedTab.browserTabId === tab.id);
 
     if (existing) {
       delete existing.missingReason;

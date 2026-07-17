@@ -3,6 +3,7 @@ import {
   type RecoverySet,
   type TrackedTab,
 } from "./recovery-model.js";
+import { restoreWindowGrouping } from "./manual-recovery.js";
 import { RecoveryStore } from "./recovery-store.js";
 import {
   reconcileOpenTabsAfterStartup,
@@ -72,6 +73,13 @@ async function getCurrentRecoveryStatus() {
   return getRecoveryStatus(recoverySet);
 }
 
+async function restoreOneWindowGrouping(groupingId: string) {
+  await installationCapture;
+  const result = await restoreWindowGrouping(store, groupingId);
+  await synchronizeRecoveryBadge(await store.read());
+  return result;
+}
+
 startTabTracking(store);
 
 const startupReconciliation = scheduleStartupReconciliation(
@@ -119,6 +127,15 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) =
 
   if (message.type === "getRecoverySummary") {
     void getCurrentRecoveryStatus().then(sendResponse);
+    return true;
+  }
+
+  if (
+    message.type === "restoreWindowGrouping" &&
+    "groupingId" in message &&
+    typeof message.groupingId === "string"
+  ) {
+    void restoreOneWindowGrouping(message.groupingId).then(sendResponse);
     return true;
   }
 

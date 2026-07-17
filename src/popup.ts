@@ -49,6 +49,26 @@ async function renderRecoverySummary(): Promise<void> {
         item.append(link);
       }
       section.append(list);
+
+      const restoreButton = document.createElement("button");
+      restoreButton.type = "button";
+      restoreButton.className = "restore-window";
+      restoreButton.dataset.groupingId = grouping.groupingId;
+      restoreButton.textContent = "Restore Window";
+      restoreButton.addEventListener("click", async () => {
+        restoreButton.disabled = true;
+        try {
+          await chrome.runtime.sendMessage({
+            type: "restoreWindowGrouping",
+            groupingId: grouping.groupingId,
+          });
+          await renderRecoverySummary();
+        } catch (error: unknown) {
+          restoreButton.disabled = false;
+          console.error("Failed to restore Window Grouping", error);
+        }
+      });
+      section.append(restoreButton);
       return section;
     }),
   );
