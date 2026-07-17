@@ -6,7 +6,11 @@ interface ListenerHarness {
   readWindows: () => Array<{
     groupingId: string;
     browserWindowId?: number;
-    tabs: Array<{ recordId: string; browserTabId?: number }>;
+    tabs: Array<{
+      recordId: string;
+      browserTabId?: number;
+      missingReason?: "startup" | "window-closure";
+    }>;
   }>;
 }
 
@@ -86,6 +90,7 @@ async function startListenerHarness(): Promise<ListenerHarness> {
         tabs: grouping.tabs.map((tab) => ({
           recordId: tab.recordId,
           browserTabId: tab.browserTabId,
+          missingReason: tab.missingReason,
         })),
       })),
   };
@@ -104,7 +109,13 @@ test("preserves a pending false removal when Window Closure arrives before settl
       {
         groupingId: "grouping-1",
         browserWindowId: undefined,
-        tabs: [{ recordId: "record-1", browserTabId: undefined }],
+        tabs: [
+          {
+            recordId: "record-1",
+            browserTabId: undefined,
+            missingReason: "window-closure",
+          },
+        ],
       },
     ]);
   } finally {

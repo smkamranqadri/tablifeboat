@@ -44,7 +44,11 @@ async function readWindowGroupingSnapshot(
   | {
       groupingId: string;
       browserWindowId: number | undefined;
-      tabs: { url: string; browserTabId: number | undefined }[];
+      tabs: {
+        url: string;
+        browserTabId: number | undefined;
+        missingReason: "startup" | "window-closure" | undefined;
+      }[];
     }
   | undefined
 > {
@@ -56,6 +60,7 @@ async function readWindowGroupingSnapshot(
         tabs: grouping.tabs.map((tab) => ({
           url: tab.url,
           browserTabId: tab.browserTabId,
+          missingReason: tab.missingReason,
         })),
       }
     : undefined;
@@ -100,8 +105,16 @@ test("preserves a closed multi-tab Recoverable Window as one missing Window Grou
       groupingId,
       browserWindowId: undefined,
       tabs: [
-        { url: urls[0], browserTabId: undefined },
-        { url: urls[1], browserTabId: undefined },
+        {
+          url: urls[0],
+          browserTabId: undefined,
+          missingReason: "window-closure",
+        },
+        {
+          url: urls[1],
+          browserTabId: undefined,
+          missingReason: "window-closure",
+        },
       ],
     });
     await expect
@@ -143,7 +156,9 @@ test("treats closing the last Web Tab as Window Closure", async () => {
     await expect.poll(() => readWindowGroupingSnapshot(extension.serviceWorker, [url])).toEqual({
       groupingId,
       browserWindowId: undefined,
-      tabs: [{ url, browserTabId: undefined }],
+      tabs: [
+        { url, browserTabId: undefined, missingReason: "window-closure" },
+      ],
     });
     await expect
       .poll(() => extension.serviceWorker.evaluate(() => chrome.action.getBadgeText({})))

@@ -10,6 +10,7 @@ import {
 } from "./reconciliation.js";
 import {
   getRecoveryStatus,
+  hasStartupMissingTabs,
   notifyMissingTabsAfterStartup,
   synchronizeRecoveryBadge,
   synchronizeRecoveryBadgeWithLogging,
@@ -73,13 +74,21 @@ async function getCurrentRecoveryStatus() {
 
 startTabTracking(store);
 
-const startupReconciliation = scheduleStartupReconciliation(async () => {
-  await installationCapture;
-  const set = await reconcileOpenTabsAfterStartup(store);
-  await synchronizeRecoveryBadge(set);
-  await notifyMissingTabsAfterStartup(set);
-  return set;
-});
+const startupReconciliation = scheduleStartupReconciliation(
+  async ({ claimStartupNotification }) => {
+    await installationCapture;
+    const set = await reconcileOpenTabsAfterStartup(store);
+    await synchronizeRecoveryBadge(set);
+    if (
+      hasStartupMissingTabs(set) &&
+      (await claimStartupNotification())
+    ) {
+      await notifyMissingTabsAfterStartup(set);
+    }
+    return set;
+  },
+  () => store.read(),
+);
 
 chrome.storage.onChanged.addListener((changes, areaName) => {
   if (areaName !== "local" || !changes.recoverySet?.newValue) {
@@ -117,6 +126,11 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) =
     void startupReconciliation
       .reconcileAfterStartupSettlingForTest()
       .then(sendResponse);
+    return true;
+  }
+
+  if (message.type === "simulateStartupForTest") {
+    void startupReconciliation.simulateStartupForTest().then(sendResponse);
     return true;
   }
 

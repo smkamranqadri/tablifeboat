@@ -96,6 +96,9 @@ function migrateRecoverySet(storedSet: StoredRecoverySet | undefined): {
         return {
           recordId,
           browserTabId: tab.browserTabId,
+          ...(tab.missingReason === undefined
+            ? {}
+            : { missingReason: tab.missingReason }),
           title: tab.title,
           url: tab.url,
           placement: {

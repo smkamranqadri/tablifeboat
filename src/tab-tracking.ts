@@ -108,6 +108,7 @@ function updateTrackedTab(
       .find((trackedTab) => trackedTab.browserTabId === tab.id);
 
     if (existing) {
+      delete existing.missingReason;
       existing.title = tab.title ?? tab.url;
       existing.url = tab.url;
       existing.placement = {
@@ -227,6 +228,7 @@ function preserveWindowGrouping(set: RecoverySet, browserWindowId: number): void
   delete grouping.browserWindowId;
   for (const tab of grouping.tabs) {
     delete tab.browserTabId;
+    tab.missingReason = "window-closure";
   }
 }
 
@@ -323,6 +325,7 @@ function attachTrackedTab(
 
     trackedTab.title = browserTab.title ?? browserTab.url;
     trackedTab.url = browserTab.url;
+    delete trackedTab.missingReason;
     trackedTab.placement = {
       index: browserTab.index,
       pinned: browserTab.pinned,

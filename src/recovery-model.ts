@@ -3,9 +3,12 @@ export interface TabPlacement {
   pinned: boolean;
 }
 
+export type MissingReason = "startup" | "window-closure";
+
 export interface TrackedTab {
   recordId: string;
   browserTabId?: number;
+  missingReason?: MissingReason;
   title: string;
   url: string;
   placement: TabPlacement;

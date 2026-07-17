@@ -39,7 +39,7 @@ export async function notifyMissingTabsAfterStartup(
   set: RecoverySet,
 ): Promise<void> {
   const { missingTabCount } = getRecoveryStatus(set);
-  if (missingTabCount === 0) {
+  if (!hasStartupMissingTabs(set)) {
     return;
   }
 
@@ -51,6 +51,15 @@ export async function notifyMissingTabsAfterStartup(
     title: "Tab Recovery",
     message: `${missingTabCount} ${noun} available for Manual Recovery.`,
   });
+}
+
+export function hasStartupMissingTabs(set: RecoverySet): boolean {
+  return set.windows.some((grouping) =>
+    grouping.tabs.some(
+      (tab) =>
+        tab.browserTabId === undefined && tab.missingReason === "startup",
+    ),
+  );
 }
 
 export function synchronizeRecoveryBadgeWithLogging(
