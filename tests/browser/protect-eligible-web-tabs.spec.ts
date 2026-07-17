@@ -1,5 +1,5 @@
 import { createServer, type Server } from "node:http";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { chromium, expect, test, type BrowserContext } from "@playwright/test";
@@ -94,8 +94,8 @@ test("protects existing eligible Web Tabs when the extension is installed", asyn
     await setupContext?.close();
     if (extension) {
       await extension.close();
-    } else {
-      await rm(profileDirectory, { recursive: true, force: true });
     }
+    await expect(stat(profileDirectory)).resolves.toBeDefined();
+    await rm(profileDirectory, { recursive: true, force: true });
   }
 });

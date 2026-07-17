@@ -19,6 +19,7 @@ interface ExtensionProfileOptions {
 export async function launchExtensionProfile(
   options: ExtensionProfileOptions = {},
 ): Promise<ExtensionProfile> {
+  const ownsProfileDirectory = options.profileDirectory === undefined;
   const profileDirectory =
     options.profileDirectory ??
     (await mkdtemp(path.join(tmpdir(), "tab-recovery-profile-")));
@@ -52,12 +53,16 @@ export async function launchExtensionProfile(
       close: async () => {
         await context?.close();
         context = undefined;
-        await rm(profileDirectory, { recursive: true, force: true });
+        if (ownsProfileDirectory) {
+          await rm(profileDirectory, { recursive: true, force: true });
+        }
       },
     };
   } catch (error) {
     await context?.close();
-    await rm(profileDirectory, { recursive: true, force: true });
+    if (ownsProfileDirectory) {
+      await rm(profileDirectory, { recursive: true, force: true });
+    }
     throw error;
   }
 }

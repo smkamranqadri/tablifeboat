@@ -33,34 +33,46 @@ test("keeps each Tracked Tab current through navigation and Individual Tab Closu
   const extension = await launchExtensionProfile();
 
   try {
+    const expectProtectedCount = async (expectedCount: number): Promise<void> => {
+      const popup = await extension.openPopup();
+      const noun = expectedCount === 1 ? "tab" : "tabs";
+      await expect(
+        popup.getByText(`${expectedCount} open protected ${noun}`),
+      ).toBeVisible();
+      await popup.close();
+    };
+    const readTrackedTabs = async (): Promise<TrackedTab[]> => {
+      const recoverySet = await readRecoverySet(extension.serviceWorker);
+      return recoverySet?.windows.flatMap((window) => window.tabs) ?? [];
+    };
+
+    await expectProtectedCount(0);
+
     const webTab = await extension.context.newPage();
     await webTab.goto(`${origin}/first`);
 
     let firstRecord: TrackedTab | undefined;
     await expect
       .poll(async () => {
-        const recoverySet = await readRecoverySet(extension.serviceWorker);
-        const matchingTabs =
-          recoverySet?.windows.flatMap((window) => window.tabs).filter((tab) =>
-            tab.url.startsWith(origin),
-          ) ?? [];
-        firstRecord = matchingTabs[0];
-        return matchingTabs.map(({ title, url }) => ({ title, url }));
+        const trackedTabs = await readTrackedTabs();
+        firstRecord = trackedTabs[0];
+        return trackedTabs.map(({ title, url }) => ({ title, url }));
       })
       .toEqual([{ title: "First page", url: `${origin}/first` }]);
 
     expect(firstRecord?.recordId).toEqual(expect.any(String));
     const originalRecordId = firstRecord!.recordId;
+    const originalBrowserTabId = firstRecord!.browserTabId;
+    await expectProtectedCount(1);
 
     await webTab.goto(`${origin}/second`);
     await expect
       .poll(async () => {
-        const recoverySet = await readRecoverySet(extension.serviceWorker);
-        return (
-          recoverySet?.windows.flatMap((window) => window.tabs).filter((tab) =>
-            tab.url.startsWith(origin),
-          ) ?? []
-        ).map(({ recordId, title, url }) => ({ recordId, title, url }));
+        return (await readTrackedTabs()).map(({ recordId, title, url }) => ({
+          recordId,
+          title,
+          url,
+        }));
       })
       .toEqual([
         {
@@ -69,49 +81,99 @@ test("keeps each Tracked Tab current through navigation and Individual Tab Closu
           url: `${origin}/second`,
         },
       ]);
+    await expectProtectedCount(1);
 
-    const afterNavigation = await readRecoverySet(extension.serviceWorker);
-    expect(
-      afterNavigation?.windows
-        .flatMap((window) => window.tabs)
-        .some((tab) => tab.url === `${origin}/first`),
-    ).toBe(false);
+    expect((await readTrackedTabs()).some((tab) => tab.url === `${origin}/first`)).toBe(
+      false,
+    );
 
     await webTab.goto("about:blank");
-    await expect
-      .poll(async () => {
-        const recoverySet = await readRecoverySet(extension.serviceWorker);
-        return (
-          recoverySet?.windows.flatMap((window) => window.tabs).filter((tab) =>
-            tab.url.startsWith(origin),
-          ).length ?? 0
-        );
-      })
-      .toBe(0);
+    await expect.poll(readTrackedTabs).toEqual([]);
+    expect(
+      (await readTrackedTabs()).some(
+        (tab) =>
+          tab.recordId === originalRecordId || tab.browserTabId === originalBrowserTabId,
+      ),
+    ).toBe(false);
+    await expectProtectedCount(0);
 
     await webTab.goto(`${origin}/first`);
+    let readdedRecord: TrackedTab | undefined;
     await expect
       .poll(async () => {
-        const recoverySet = await readRecoverySet(extension.serviceWorker);
-        return (
-          recoverySet?.windows.flatMap((window) => window.tabs).filter((tab) =>
-            tab.url.startsWith(origin),
-          ) ?? []
-        ).map(({ title, url }) => ({ title, url }));
+        const trackedTabs = await readTrackedTabs();
+        readdedRecord = trackedTabs[0];
+        return trackedTabs.map(({ title, url }) => ({ title, url }));
       })
       .toEqual([{ title: "First page", url: `${origin}/first` }]);
+    await expectProtectedCount(1);
+
+    const popupWindow = await extension.serviceWorker.evaluate(async (url) => {
+      const createdWindow = await chrome.windows.create({ type: "popup", url });
+      return createdWindow.id;
+    }, `${origin}/second`);
+    expect(popupWindow).toEqual(expect.any(Number));
+    await expect
+      .poll(readTrackedTabs)
+      .toHaveLength(1);
+    expect((await readTrackedTabs())[0]?.recordId).toBe(readdedRecord!.recordId);
+    await extension.serviceWorker.evaluate(
+      async (windowId) => chrome.windows.remove(windowId),
+      popupWindow!,
+    );
+
+    const windowId = readdedRecord!.placement.windowId;
+    const insertedTabId = await extension.serviceWorker.evaluate(
+      async ({ targetWindowId, url }) => {
+        const tab = await chrome.tabs.create({
+          windowId: targetWindowId,
+          index: 0,
+          url,
+        });
+        return tab.id;
+      },
+      { targetWindowId: windowId, url: `${origin}/second` },
+    );
+    expect(insertedTabId).toEqual(expect.any(Number));
+    await expect
+      .poll(async () =>
+        (await readTrackedTabs())
+          .map(({ browserTabId, placement }) => ({
+            browserTabId,
+            index: placement.index,
+          }))
+          .sort((left, right) => left.index - right.index),
+      )
+      .toEqual([
+        { browserTabId: insertedTabId, index: 0 },
+        { browserTabId: readdedRecord!.browserTabId, index: 2 },
+      ]);
+    await expectProtectedCount(2);
+
+    await extension.serviceWorker.evaluate(
+      async (tabId) => chrome.tabs.remove(tabId),
+      insertedTabId!,
+    );
+    await expect
+      .poll(async () =>
+        (await readTrackedTabs()).map(({ browserTabId, placement }) => ({
+          browserTabId,
+          index: placement.index,
+        })),
+      )
+      .toEqual([{ browserTabId: readdedRecord!.browserTabId, index: 1 }]);
+    await expectProtectedCount(1);
 
     await webTab.close();
-    await expect
-      .poll(async () => {
-        const recoverySet = await readRecoverySet(extension.serviceWorker);
-        return (
-          recoverySet?.windows.flatMap((window) => window.tabs).filter((tab) =>
-            tab.url.startsWith(origin),
-          ).length ?? 0
-        );
-      })
-      .toBe(0);
+    await expect.poll(readTrackedTabs).toEqual([]);
+    expect(
+      (await readTrackedTabs()).some(
+        (tab) =>
+          tab.recordId === readdedRecord!.recordId ||
+          tab.browserTabId === readdedRecord!.browserTabId,
+      ),
+    ).toBe(false);
+    await expectProtectedCount(0);
   } finally {
     await extension.close();
   }
