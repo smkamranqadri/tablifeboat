@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "Tab Recovery",
+  "version": "0.1.0",
+  "description": "Preserves eligible Web Tabs for Manual Recovery.",
+  "permissions": ["storage", "tabs"],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Tab Recovery"
+  }
+}

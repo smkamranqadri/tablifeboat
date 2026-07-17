@@ -1,0 +1,17 @@
+{
+  "name": "tab-recovery",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "tsc && cp src/manifest.json src/popup.html src/popup.css dist/",
+    "typecheck": "tsc --noEmit",
+    "test:browser": "npm run build && playwright test",
+    "test": "npm run test:browser"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.61.1",
+    "@types/chrome": "0.2.2",
+    "@types/node": "26.1.1",
+    "typescript": "7.0.2"
+  }
+}
