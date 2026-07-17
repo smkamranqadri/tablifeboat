@@ -6,6 +6,12 @@ export interface RestoreWindowGroupingResult {
   failedRecordIds: string[];
 }
 
+export type RestoreAllResult = RestoreWindowGroupingResult;
+
+export interface ManualRecoveryOptions {
+  beforeCreateTab?: (recordId: string) => void;
+}
+
 interface MissingTabSnapshot {
   recordId: string;
   url: string;
@@ -20,6 +26,7 @@ interface RestoredBrowserTab {
 export async function restoreWindowGrouping(
   store: RecoveryStore,
   groupingId: string,
+  options: ManualRecoveryOptions = {},
 ): Promise<RestoreWindowGroupingResult> {
   const recoverySet = await store.read();
   const grouping = recoverySet.windows.find(
@@ -50,6 +57,7 @@ export async function restoreWindowGrouping(
             groupingId,
             browserWindowId,
             missingTab,
+            options,
           );
       browserWindowId = restoredTab.browserWindowId;
       restoredRecordIds.push(missingTab.recordId);
@@ -68,6 +76,30 @@ export async function restoreWindowGrouping(
   }
 
   return { restoredRecordIds, failedRecordIds };
+}
+
+export async function restoreAllMissingTabs(
+  store: RecoveryStore,
+  options: ManualRecoveryOptions = {},
+): Promise<RestoreAllResult> {
+  const recoverySet = await store.read();
+  const groupingIds = recoverySet.windows
+    .filter((grouping) =>
+      grouping.tabs.some((tab) => tab.browserTabId === undefined),
+    )
+    .map((grouping) => grouping.groupingId);
+  const result: RestoreAllResult = {
+    restoredRecordIds: [],
+    failedRecordIds: [],
+  };
+
+  for (const groupingId of groupingIds) {
+    const groupingResult = await restoreWindowGrouping(store, groupingId, options);
+    result.restoredRecordIds.push(...groupingResult.restoredRecordIds);
+    result.failedRecordIds.push(...groupingResult.failedRecordIds);
+  }
+
+  return result;
 }
 
 async function restoreFirstTabInNewWindow(
@@ -116,6 +148,7 @@ async function restoreTabInExistingWindow(
   groupingId: string,
   browserWindowId: number,
   missingTab: MissingTabSnapshot,
+  options: ManualRecoveryOptions,
 ): Promise<RestoredBrowserTab> {
   let browserTabId: number | undefined;
   await store.update(async (set) => {
@@ -129,6 +162,7 @@ async function restoreTabInExistingWindow(
       throw new Error("Missing Tab is no longer available for Manual Recovery");
     }
 
+    options.beforeCreateTab?.(missingTab.recordId);
     const browserTab = await chrome.tabs.create({
       windowId: browserWindowId,
       url: missingTab.url,

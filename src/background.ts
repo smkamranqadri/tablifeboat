@@ -3,7 +3,10 @@ import {
   type RecoverySet,
   type TrackedTab,
 } from "./recovery-model.js";
-import { restoreWindowGrouping } from "./manual-recovery.js";
+import {
+  restoreAllMissingTabs,
+  restoreWindowGrouping,
+} from "./manual-recovery.js";
 import { RecoveryStore } from "./recovery-store.js";
 import {
   reconcileOpenTabsAfterStartup,
@@ -20,6 +23,9 @@ import { isWebTab, startTabTracking } from "./tab-tracking.js";
 
 const store = new RecoveryStore();
 let installationCapture = Promise.resolve<RecoverySet | undefined>(undefined);
+const isAutomatedTestBuild =
+  chrome.runtime.getManifest().version_name === "automated-test";
+let failNextTabCreationRecordId: string | undefined;
 
 async function captureEligibleWebTabs(): Promise<RecoverySet> {
   const tabs = await chrome.tabs.query({ windowType: "normal" });
@@ -80,6 +86,23 @@ async function restoreOneWindowGrouping(groupingId: string) {
   return result;
 }
 
+async function restoreAllWindowGroupings() {
+  await installationCapture;
+  const result = await restoreAllMissingTabs(store, {
+    beforeCreateTab: isAutomatedTestBuild
+      ? (recordId) => {
+          if (recordId !== failNextTabCreationRecordId) {
+            return;
+          }
+          failNextTabCreationRecordId = undefined;
+          throw new Error(`Injected tab creation failure for ${recordId}`);
+        }
+      : undefined,
+  });
+  await synchronizeRecoveryBadge(await store.read());
+  return result;
+}
+
 startTabTracking(store);
 
 const startupReconciliation = scheduleStartupReconciliation(
@@ -128,6 +151,22 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) =
   if (message.type === "getRecoverySummary") {
     void getCurrentRecoveryStatus().then(sendResponse);
     return true;
+  }
+
+  if (message.type === "restoreAll") {
+    void restoreAllWindowGroupings().then(sendResponse);
+    return true;
+  }
+
+  if (
+    message.type === "failNextTabCreationForAutomatedTest" &&
+    isAutomatedTestBuild &&
+    "recordId" in message &&
+    typeof message.recordId === "string"
+  ) {
+    failNextTabCreationRecordId = message.recordId;
+    sendResponse({ enabled: true });
+    return false;
   }
 
   if (

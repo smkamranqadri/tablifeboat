@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { chromium, type BrowserContext, type Page, type Worker } from "@playwright/test";
@@ -12,6 +12,7 @@ export interface ExtensionProfile {
 }
 
 interface ExtensionProfileOptions {
+  automatedTest?: boolean;
   profileDirectory?: string;
   restoreLastSession?: boolean;
 }
@@ -23,10 +24,31 @@ export async function launchExtensionProfile(
   const profileDirectory =
     options.profileDirectory ??
     (await mkdtemp(path.join(tmpdir(), "tab-recovery-profile-")));
-  const extensionDirectory = path.resolve("dist");
+  let automatedTestExtensionDirectory: string | undefined;
+  let extensionDirectory = path.resolve("dist");
   let context: BrowserContext | undefined;
 
   try {
+    if (options.automatedTest) {
+      automatedTestExtensionDirectory = await mkdtemp(
+        path.join(tmpdir(), "tab-recovery-automated-extension-"),
+      );
+      await cp(extensionDirectory, automatedTestExtensionDirectory, {
+        recursive: true,
+      });
+      const manifestPath = path.join(
+        automatedTestExtensionDirectory,
+        "manifest.json",
+      );
+      const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as Record<
+        string,
+        unknown
+      >;
+      manifest.version_name = "automated-test";
+      await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+      extensionDirectory = automatedTestExtensionDirectory;
+    }
+
     context = await chromium.launchPersistentContext(profileDirectory, {
       headless: true,
       channel: "chromium",
@@ -56,12 +78,21 @@ export async function launchExtensionProfile(
         if (ownsProfileDirectory) {
           await rm(profileDirectory, { recursive: true, force: true });
         }
+        if (automatedTestExtensionDirectory) {
+          await rm(automatedTestExtensionDirectory, {
+            recursive: true,
+            force: true,
+          });
+        }
       },
     };
   } catch (error) {
     await context?.close();
     if (ownsProfileDirectory) {
       await rm(profileDirectory, { recursive: true, force: true });
+    }
+    if (automatedTestExtensionDirectory) {
+      await rm(automatedTestExtensionDirectory, { recursive: true, force: true });
     }
     throw error;
   }

@@ -17,9 +17,10 @@ interface RecoverySummary {
 
 async function renderRecoverySummary(): Promise<void> {
   const count = document.querySelector<HTMLParagraphElement>("#protected-count");
+  const restoreAllButton = document.querySelector<HTMLButtonElement>("#restore-all");
   const missingWindows = document.querySelector<HTMLDivElement>("#missing-windows");
 
-  if (!count || !missingWindows) {
+  if (!count || !restoreAllButton || !missingWindows) {
     return;
   }
 
@@ -28,6 +29,7 @@ async function renderRecoverySummary(): Promise<void> {
   })) as RecoverySummary;
   const noun = protectedTabCount === 1 ? "tab" : "tabs";
   count.textContent = `${protectedTabCount} open protected ${noun}`;
+  restoreAllButton.hidden = missingWindowGroupings.length === 0;
 
   missingWindows.replaceChildren(
     ...missingWindowGroupings.map((grouping) => {
@@ -73,5 +75,18 @@ async function renderRecoverySummary(): Promise<void> {
     }),
   );
 }
+
+const restoreAllButton = document.querySelector<HTMLButtonElement>("#restore-all");
+restoreAllButton?.addEventListener("click", async () => {
+  restoreAllButton.disabled = true;
+  try {
+    await chrome.runtime.sendMessage({ type: "restoreAll" });
+    await renderRecoverySummary();
+  } catch (error: unknown) {
+    console.error("Failed to restore all Missing Tabs", error);
+  } finally {
+    restoreAllButton.disabled = false;
+  }
+});
 
 void renderRecoverySummary();
