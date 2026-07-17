@@ -147,7 +147,7 @@ test("Restore All repairs partial and absent Window Groupings without duplicatin
     await popup.getByRole("button", { name: "Restore All" }).click();
 
     await expect(popup.getByText("4 open protected tabs")).toBeVisible();
-    await expect(popup.locator(".missing-window")).toHaveCount(0);
+    await expect(popup.locator(".missing-window-grouping")).toHaveCount(0);
     await expect
       .poll(() =>
         extension.serviceWorker.evaluate(async () =>
@@ -274,7 +274,7 @@ test("a Failed Recovery stays missing and a later Restore All retries the same d
     expect(failedRecord.missingReason).toBe("startup");
 
     await popup.getByRole("button", { name: "Restore All" }).click();
-    await expect(popup.locator(".missing-window")).toHaveCount(0);
+    await expect(popup.locator(".missing-window-grouping")).toHaveCount(0);
     await expect(popup.getByText("4 open protected tabs")).toBeVisible();
     await expect
       .poll(() =>

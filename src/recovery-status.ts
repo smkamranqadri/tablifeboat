@@ -3,7 +3,9 @@ import type { RecoverySet, WindowGrouping } from "./recovery-model.js";
 export interface RecoveryStatus {
   protectedTabCount: number;
   missingTabCount: number;
-  missingWindowGroupings: WindowGrouping[];
+  missingWindowGroupings: Array<
+    WindowGrouping & { entirelyMissing: boolean }
+  >;
 }
 
 export function getRecoveryStatus(set: RecoverySet): RecoveryStatus {
@@ -11,7 +13,13 @@ export function getRecoveryStatus(set: RecoverySet): RecoveryStatus {
     const missingTabs = grouping.tabs.filter((tab) => tab.browserTabId === undefined);
     return missingTabs.length === 0
       ? []
-      : [{ groupingId: grouping.groupingId, tabs: missingTabs }];
+      : [
+          {
+            groupingId: grouping.groupingId,
+            tabs: missingTabs,
+            entirelyMissing: missingTabs.length === grouping.tabs.length,
+          },
+        ];
   });
 
   return {

@@ -34,7 +34,7 @@ test.afterAll(async () => {
   });
 });
 
-test("rejects an unarmed control and persists one startup operation across worker restart", async () => {
+test("an automated control rejects an unarmed request and preserves one startup operation across worker restart", async () => {
   const originalChrome = globalThis.chrome;
   let startupListeners: Array<() => void> = [];
   let sessionState: Record<string, unknown> = {};
@@ -57,9 +57,6 @@ test("rejects an unarmed control and persists one startup operation across worke
         },
       },
     },
-    management: {
-      getSelf: async () => ({ installType: "normal" }),
-    },
   } as unknown as typeof chrome;
 
   try {
@@ -80,6 +77,7 @@ test("rejects an unarmed control and persists one startup operation across worke
     const firstWorker = scheduleStartupReconciliation(
       runStartupOperation,
       readCurrentRecoverySet,
+      true,
     );
 
     await new Promise<void>((resolve) => setTimeout(resolve, 25));
@@ -88,8 +86,6 @@ test("rejects an unarmed control and persists one startup operation across worke
     ).toBeUndefined();
     expect(notificationInvocationCount).toBe(0);
     expect(startupListeners).toHaveLength(1);
-    expect(await firstWorker.simulateStartupForTest()).toBe(false);
-
     startupListeners[0]!();
     await expect.poll(() => sessionState).toMatchObject({
       startupReconciliationState: {
@@ -108,6 +104,7 @@ test("rejects an unarmed control and persists one startup operation across worke
     const restartedWorker = scheduleStartupReconciliation(
       runStartupOperation,
       readCurrentRecoverySet,
+      true,
     );
     expect(
       await restartedWorker.reconcileAfterStartupSettlingForTest(),
@@ -168,11 +165,15 @@ async function launchExistingProfileAfterRestart(
   let restarted: ExtensionProfile | undefined;
 
   try {
-    firstLaunch = await launchExtensionProfile({ profileDirectory });
+    firstLaunch = await launchExtensionProfile({
+      automatedTest: true,
+      profileDirectory,
+    });
     await firstLaunch.close();
     firstLaunch = undefined;
 
     restarted = await launchExtensionProfile({
+      automatedTest: true,
       profileDirectory,
       restoreLastSession: true,
     });
@@ -321,7 +322,24 @@ async function findWindowIdForUrl(
 test("refuses the deterministic control outside browser startup", async () => {
   const extension = await launchExtensionProfile();
   try {
+    const popup = await extension.openPopup();
+    expect(
+      await popup.evaluate(async () =>
+        chrome.runtime.sendMessage({ type: "simulateStartupForTest" }),
+      ),
+    ).toBe(false);
+    await popup.close();
     expect(await sendReconciliationControlOnce(extension)).toBeUndefined();
+  } finally {
+    await extension.close();
+  }
+});
+
+test("allows startup controls only in the explicit automated-test build", async () => {
+  const extension = await launchExtensionProfile({ automatedTest: true });
+  try {
+    await simulateStartupForTest(extension);
+    expect(await reconcileAfterStartupSettlingForTest(extension)).toBeDefined();
   } finally {
     await extension.close();
   }

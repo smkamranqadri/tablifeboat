@@ -93,6 +93,7 @@ export async function reconcileOpenTabsAfterStartup(
 export function scheduleStartupReconciliation(
   operation: (context: StartupOperationContext) => Promise<RecoverySet>,
   readCurrentRecoverySet: () => Promise<RecoverySet>,
+  automatedTestControlsEnabled = false,
 ): StartupReconciliation {
   let timer: ReturnType<typeof setTimeout> | undefined;
   let result: Promise<RecoverySet> | undefined;
@@ -194,6 +195,9 @@ export function scheduleStartupReconciliation(
 
   return {
     reconcileAfterStartupSettlingForTest: async () => {
+      if (!automatedTestControlsEnabled) {
+        return undefined;
+      }
       const state = await readState();
       if (!state?.armed) {
         return undefined;
@@ -205,8 +209,7 @@ export function scheduleStartupReconciliation(
       return reconcileOnce();
     },
     simulateStartupForTest: async () => {
-      const extension = await chrome.management.getSelf();
-      if (extension.installType !== "development") {
+      if (!automatedTestControlsEnabled) {
         return false;
       }
       handleStartup();

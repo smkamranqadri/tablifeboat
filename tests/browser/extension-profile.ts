@@ -24,14 +24,14 @@ export async function launchExtensionProfile(
   const profileDirectory =
     options.profileDirectory ??
     (await mkdtemp(path.join(tmpdir(), "tab-recovery-profile-")));
-  let automatedTestExtensionDirectory: string | undefined;
   let extensionDirectory = path.resolve("dist");
   let context: BrowserContext | undefined;
 
   try {
     if (options.automatedTest) {
-      automatedTestExtensionDirectory = await mkdtemp(
-        path.join(tmpdir(), "tab-recovery-automated-extension-"),
+      const automatedTestExtensionDirectory = path.join(
+        profileDirectory,
+        ".tab-recovery-automated-extension",
       );
       await cp(extensionDirectory, automatedTestExtensionDirectory, {
         recursive: true,
@@ -78,21 +78,12 @@ export async function launchExtensionProfile(
         if (ownsProfileDirectory) {
           await rm(profileDirectory, { recursive: true, force: true });
         }
-        if (automatedTestExtensionDirectory) {
-          await rm(automatedTestExtensionDirectory, {
-            recursive: true,
-            force: true,
-          });
-        }
       },
     };
   } catch (error) {
     await context?.close();
     if (ownsProfileDirectory) {
       await rm(profileDirectory, { recursive: true, force: true });
-    }
-    if (automatedTestExtensionDirectory) {
-      await rm(automatedTestExtensionDirectory, { recursive: true, force: true });
     }
     throw error;
   }

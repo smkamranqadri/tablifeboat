@@ -87,7 +87,10 @@ test("completed Recovery Data survives browser and MV3 service-worker restart, t
   const individuallyClosedUrl = `${origin}/closed-before-restart`;
 
   try {
-    firstLaunch = await launchExtensionProfile({ profileDirectory });
+    firstLaunch = await launchExtensionProfile({
+      automatedTest: true,
+      profileDirectory,
+    });
     const created = await firstLaunch.serviceWorker.evaluate(
       async ([firstUrl, secondUrl]) => {
         const browserWindow = await chrome.windows.create({
@@ -145,6 +148,7 @@ test("completed Recovery Data survives browser and MV3 service-worker restart, t
     await firstLaunch.close();
     firstLaunch = undefined;
     restarted = await launchExtensionProfile({
+      automatedTest: true,
       profileDirectory,
       restoreLastSession: true,
     });

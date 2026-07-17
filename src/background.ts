@@ -134,6 +134,7 @@ const startupReconciliation = scheduleStartupReconciliation(
     return set;
   },
   () => store.read(),
+  isAutomatedTestBuild,
 );
 
 chrome.storage.onChanged.addListener((changes, areaName) => {
@@ -213,16 +214,24 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) =
     return true;
   }
 
-  if (message.type === "reconcileAfterStartupSettlingForTest") {
+  if (
+    message.type === "reconcileAfterStartupSettlingForTest" &&
+    isAutomatedTestBuild
+  ) {
     void startupReconciliation
       .reconcileAfterStartupSettlingForTest()
       .then(sendResponse);
     return true;
   }
 
-  if (message.type === "simulateStartupForTest") {
+  if (message.type === "simulateStartupForTest" && isAutomatedTestBuild) {
     void startupReconciliation.simulateStartupForTest().then(sendResponse);
     return true;
+  }
+
+  if (message.type === "simulateStartupForTest") {
+    sendResponse(false);
+    return false;
   }
 
   return undefined;

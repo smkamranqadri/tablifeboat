@@ -34,7 +34,7 @@ async function badgeText(serviceWorker: Worker): Promise<string> {
   return serviceWorker.evaluate(async () => chrome.action.getBadgeText({}));
 }
 
-test("Forget actions remove only confirmed Recovery Data and persist across popup reopening", async () => {
+test("Forget actions expose whole-group Forget only for an entirely missing Window Grouping and persist", async () => {
   const extension = await launchExtensionProfile();
 
   try {
@@ -50,14 +50,6 @@ test("Forget actions remove only confirmed Recovery Data and persist across popu
       windows: [
         {
           groupingId: "one-tab-at-a-time",
-          tabs: [missingTab("keep-this-tab", 0), missingTab("forget-this-tab", 1)],
-        },
-        {
-          groupingId: "forget-this-window",
-          tabs: [missingTab("window-first-tab", 0), missingTab("window-second-tab", 1)],
-        },
-        {
-          groupingId: "open-records-are-protected",
           browserWindowId: openTab.windowId,
           tabs: [
             {
@@ -67,7 +59,13 @@ test("Forget actions remove only confirmed Recovery Data and persist across popu
               url: "https://example.com/open-record",
               placement: { index: openTab.index, pinned: openTab.pinned },
             },
+            missingTab("keep-this-tab", 1),
+            missingTab("forget-this-tab", 2),
           ],
+        },
+        {
+          groupingId: "forget-this-window",
+          tabs: [missingTab("window-first-tab", 0), missingTab("window-second-tab", 1)],
         },
       ],
     });
@@ -78,10 +76,18 @@ test("Forget actions remove only confirmed Recovery Data and persist across popu
       dialogs.push(dialog.message());
       await dialog.dismiss();
     });
-    const tabGrouping = popup
-      .locator(".missing-window")
+    const partialWindowGrouping = popup
+      .locator(".missing-window-grouping")
       .filter({ hasText: "forget-this-tab" });
-    await tabGrouping
+    await expect(
+      partialWindowGrouping.getByRole("heading", {
+        name: "Missing Window Grouping",
+      }),
+    ).toBeVisible();
+    await expect(
+      partialWindowGrouping.getByRole("button", { name: "Forget Window" }),
+    ).toHaveCount(0);
+    await partialWindowGrouping
       .getByRole("button", { name: "Forget Tab: forget-this-tab" })
       .click();
     expect(dialogs).toEqual([]);
@@ -95,7 +101,7 @@ test("Forget actions remove only confirmed Recovery Data and persist across popu
     await expect(popup.getByText("keep-this-tab", { exact: true })).toBeVisible();
 
     const windowGrouping = popup
-      .locator(".missing-window")
+      .locator(".missing-window-grouping")
       .filter({ hasText: "window-first-tab" });
     popup.once("dialog", (dialog) => dialog.dismiss());
     await windowGrouping.getByRole("button", { name: "Forget Window" }).click();
@@ -107,7 +113,7 @@ test("Forget actions remove only confirmed Recovery Data and persist across popu
     await expect(popup.getByText("window-first-tab", { exact: true })).toBeVisible();
     popup.once("dialog", (dialog) => dialog.accept());
     await popup
-      .locator(".missing-window")
+      .locator(".missing-window-grouping")
       .filter({ hasText: "window-first-tab" })
       .getByRole("button", { name: "Forget Window" })
       .click();
@@ -120,7 +126,7 @@ test("Forget actions remove only confirmed Recovery Data and persist across popu
         chrome.runtime.sendMessage({ type: "forgetTab", recordId: "open-record" }),
         chrome.runtime.sendMessage({
           type: "forgetWindowGrouping",
-          groupingId: "open-records-are-protected",
+          groupingId: "one-tab-at-a-time",
         }),
       ]),
     );
@@ -143,8 +149,10 @@ test("Forget actions remove only confirmed Recovery Data and persist across popu
         recordIds: grouping.tabs.map((tab) => tab.recordId),
       })),
     ).toEqual([
-      { groupingId: "one-tab-at-a-time", recordIds: ["keep-this-tab"] },
-      { groupingId: "open-records-are-protected", recordIds: ["open-record"] },
+      {
+        groupingId: "one-tab-at-a-time",
+        recordIds: ["open-record", "keep-this-tab"],
+      },
     ]);
   } finally {
     await extension.close();

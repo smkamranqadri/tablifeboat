@@ -123,7 +123,9 @@ test("preserves a closed multi-tab Recoverable Window as one missing Window Grou
 
     const popup = await extension.openPopup();
     await expect(popup.getByText("0 open protected tabs")).toBeVisible();
-    await expect(popup.getByRole("heading", { name: "Missing Window" })).toBeVisible();
+    await expect(
+      popup.getByRole("heading", { name: "Missing Window Grouping" }),
+    ).toBeVisible();
     await expect(popup.getByText("first-missing", { exact: true })).toBeVisible();
     await expect(popup.getByText("second-missing", { exact: true })).toBeVisible();
     await expectNoNotifications(extension.serviceWorker);
@@ -166,7 +168,9 @@ test("treats closing the last Web Tab as Window Closure", async () => {
 
     const popup = await extension.openPopup();
     await expect(popup.getByText("0 open protected tabs")).toBeVisible();
-    await expect(popup.getByRole("heading", { name: "Missing Window" })).toBeVisible();
+    await expect(
+      popup.getByRole("heading", { name: "Missing Window Grouping" }),
+    ).toBeVisible();
     await expect(popup.getByText("last-tab-missing", { exact: true })).toBeVisible();
     await expectNoNotifications(extension.serviceWorker);
   } finally {

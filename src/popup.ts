@@ -7,6 +7,7 @@ interface TrackedTabSummary {
 interface WindowGroupingSummary {
   groupingId: string;
   tabs: TrackedTabSummary[];
+  entirelyMissing: boolean;
 }
 
 interface RecoverySummary {
@@ -31,9 +32,11 @@ async function sendForgetRequest(message: object): Promise<void> {
 async function renderRecoverySummary(): Promise<void> {
   const count = document.querySelector<HTMLParagraphElement>("#protected-count");
   const restoreAllButton = document.querySelector<HTMLButtonElement>("#restore-all");
-  const missingWindows = document.querySelector<HTMLDivElement>("#missing-windows");
+  const missingWindowGroupingsContainer = document.querySelector<HTMLDivElement>(
+    "#missing-window-groupings",
+  );
 
-  if (!count || !restoreAllButton || !missingWindows) {
+  if (!count || !restoreAllButton || !missingWindowGroupingsContainer) {
     return;
   }
 
@@ -44,13 +47,14 @@ async function renderRecoverySummary(): Promise<void> {
   count.textContent = `${protectedTabCount} open protected ${noun}`;
   restoreAllButton.hidden = missingWindowGroupings.length === 0;
 
-  missingWindows.replaceChildren(
+  missingWindowGroupingsContainer.replaceChildren(
     ...missingWindowGroupings.map((grouping) => {
       const section = document.createElement("section");
-      section.className = "missing-window";
+      section.className = "missing-window-grouping";
+      section.setAttribute("aria-label", "Missing Window Grouping");
 
       const heading = document.createElement("h2");
-      heading.textContent = "Missing Window";
+      heading.textContent = "Missing Window Grouping";
       section.append(heading);
 
       const list = document.createElement("ul");
@@ -92,6 +96,7 @@ async function renderRecoverySummary(): Promise<void> {
       restoreButton.className = "restore-window";
       restoreButton.dataset.groupingId = grouping.groupingId;
       restoreButton.textContent = "Restore Window";
+      restoreButton.setAttribute("aria-label", "Restore Window Grouping");
       restoreButton.addEventListener("click", async () => {
         restoreButton.disabled = true;
         try {
@@ -107,27 +112,34 @@ async function renderRecoverySummary(): Promise<void> {
       });
       actions.append(restoreButton);
 
-      const forgetWindowButton = document.createElement("button");
-      forgetWindowButton.type = "button";
-      forgetWindowButton.className = "forget-window";
-      forgetWindowButton.textContent = "Forget Window";
-      forgetWindowButton.addEventListener("click", async () => {
-        if (!window.confirm("Permanently forget this Window Grouping and all of its tabs?")) {
-          return;
-        }
+      if (grouping.entirelyMissing) {
+        const forgetWindowButton = document.createElement("button");
+        forgetWindowButton.type = "button";
+        forgetWindowButton.className = "forget-window";
+        forgetWindowButton.textContent = "Forget Window";
+        forgetWindowButton.setAttribute("aria-label", "Forget Window Grouping");
+        forgetWindowButton.addEventListener("click", async () => {
+          if (
+            !window.confirm(
+              "Permanently forget this Window Grouping and all of its tabs?",
+            )
+          ) {
+            return;
+          }
 
-        forgetWindowButton.disabled = true;
-        try {
-          await sendForgetRequest({
-            type: "forgetWindowGrouping",
-            groupingId: grouping.groupingId,
-          });
-        } catch (error: unknown) {
-          forgetWindowButton.disabled = false;
-          console.error("Failed to forget Window Grouping", error);
-        }
-      });
-      actions.append(forgetWindowButton);
+          forgetWindowButton.disabled = true;
+          try {
+            await sendForgetRequest({
+              type: "forgetWindowGrouping",
+              groupingId: grouping.groupingId,
+            });
+          } catch (error: unknown) {
+            forgetWindowButton.disabled = false;
+            console.error("Failed to forget Window Grouping", error);
+          }
+        });
+        actions.append(forgetWindowButton);
+      }
       section.append(actions);
       return section;
     }),
