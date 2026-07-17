@@ -35,6 +35,24 @@ export async function synchronizeRecoveryBadge(set: RecoverySet): Promise<void> 
   });
 }
 
+export async function notifyMissingTabsAfterStartup(
+  set: RecoverySet,
+): Promise<void> {
+  const { missingTabCount } = getRecoveryStatus(set);
+  if (missingTabCount === 0) {
+    return;
+  }
+
+  const noun = missingTabCount === 1 ? "Missing Tab is" : "Missing Tabs are";
+  await chrome.notifications.create("tab-recovery-startup", {
+    type: "basic",
+    iconUrl:
+      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+    title: "Tab Recovery",
+    message: `${missingTabCount} ${noun} available for Manual Recovery.`,
+  });
+}
+
 export function synchronizeRecoveryBadgeWithLogging(
   set: RecoverySet,
   context: string,

@@ -61,15 +61,11 @@ async function readWindowGroupingSnapshot(
     : undefined;
 }
 
-async function expectNoNotificationCapability(serviceWorker: Worker): Promise<void> {
-  const notificationCapability = await serviceWorker.evaluate(async () => ({
-    hasPermission: await chrome.permissions.contains({ permissions: ["notifications"] }),
-    hasNotificationsApi: typeof chrome.notifications !== "undefined",
-  }));
-  expect(notificationCapability).toEqual({
-    hasPermission: false,
-    hasNotificationsApi: false,
-  });
+async function expectNoNotifications(serviceWorker: Worker): Promise<void> {
+  const notifications = await serviceWorker.evaluate(async () =>
+    chrome.notifications.getAll(),
+  );
+  expect(notifications).toEqual({});
 }
 
 test("preserves a closed multi-tab Recoverable Window as one missing Window Grouping", async () => {
@@ -117,7 +113,7 @@ test("preserves a closed multi-tab Recoverable Window as one missing Window Grou
     await expect(popup.getByRole("heading", { name: "Missing Window" })).toBeVisible();
     await expect(popup.getByText("first-missing", { exact: true })).toBeVisible();
     await expect(popup.getByText("second-missing", { exact: true })).toBeVisible();
-    await expectNoNotificationCapability(extension.serviceWorker);
+    await expectNoNotifications(extension.serviceWorker);
   } finally {
     await extension.close();
   }
@@ -157,7 +153,7 @@ test("treats closing the last Web Tab as Window Closure", async () => {
     await expect(popup.getByText("0 open protected tabs")).toBeVisible();
     await expect(popup.getByRole("heading", { name: "Missing Window" })).toBeVisible();
     await expect(popup.getByText("last-tab-missing", { exact: true })).toBeVisible();
-    await expectNoNotificationCapability(extension.serviceWorker);
+    await expectNoNotifications(extension.serviceWorker);
   } finally {
     await extension.close();
   }

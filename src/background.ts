@@ -5,7 +5,13 @@ import {
 } from "./recovery-model.js";
 import { RecoveryStore } from "./recovery-store.js";
 import {
+  reconcileOpenTabsAfterStartup,
+  scheduleStartupReconciliation,
+} from "./reconciliation.js";
+import {
   getRecoveryStatus,
+  notifyMissingTabsAfterStartup,
+  synchronizeRecoveryBadge,
   synchronizeRecoveryBadgeWithLogging,
 } from "./recovery-status.js";
 import { isWebTab, startTabTracking } from "./tab-tracking.js";
@@ -66,12 +72,14 @@ async function getCurrentRecoveryStatus() {
 }
 
 startTabTracking(store);
-void store
-  .read()
-  .then((set) => synchronizeRecoveryBadgeWithLogging(set, "at startup"))
-  .catch((error: unknown) => {
-    console.error("Failed to read Recovery Data for badge synchronization at startup", error);
-  });
+
+const startupReconciliation = scheduleStartupReconciliation(async () => {
+  await installationCapture;
+  const set = await reconcileOpenTabsAfterStartup(store);
+  await synchronizeRecoveryBadge(set);
+  await notifyMissingTabsAfterStartup(set);
+  return set;
+});
 
 chrome.storage.onChanged.addListener((changes, areaName) => {
   if (areaName !== "local" || !changes.recoverySet?.newValue) {
@@ -95,13 +103,22 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) =
   if (
     typeof message !== "object" ||
     message === null ||
-    !("type" in message) ||
-    message.type !== "getRecoverySummary"
+    !("type" in message)
   ) {
     return undefined;
   }
 
-  void getCurrentRecoveryStatus().then(sendResponse);
+  if (message.type === "getRecoverySummary") {
+    void getCurrentRecoveryStatus().then(sendResponse);
+    return true;
+  }
 
-  return true;
+  if (message.type === "reconcileAfterStartupSettlingForTest") {
+    void startupReconciliation
+      .reconcileAfterStartupSettlingForTest()
+      .then(sendResponse);
+    return true;
+  }
+
+  return undefined;
 });
