@@ -23,11 +23,11 @@ export function isWebTab(tab: chrome.tabs.Tab): tab is chrome.tabs.Tab & {
 
 export function startTabTracking(store: RecoveryStore): void {
   chrome.tabs.onCreated.addListener((tab) => {
-    void updateTrackedTab(store, tab, true);
+    handleListenerOperation("tab creation", updateTrackedTab(store, tab, true));
   });
 
   chrome.tabs.onUpdated.addListener((_tabId, _changeInfo, tab) => {
-    void updateTrackedTab(store, tab);
+    handleListenerOperation("tab update", updateTrackedTab(store, tab));
   });
 
   chrome.tabs.onRemoved.addListener((tabId, removeInfo) => {
@@ -35,18 +35,20 @@ export function startTabTracking(store: RecoveryStore): void {
       return;
     }
 
-    void removeIndividuallyClosedTab(store, tabId, removeInfo.windowId);
+    handleListenerOperation(
+      "Individual Tab Closure",
+      removeIndividuallyClosedTab(store, tabId, removeInfo.windowId),
+    );
   });
 }
 
-async function updateTrackedTab(
+function updateTrackedTab(
   store: RecoveryStore,
   tab: chrome.tabs.Tab,
   reindexWindow = false,
-): Promise<void> {
-  const windowTabs = await getNormalWindowTabs(tab.windowId);
-
-  await store.update((set) => {
+): Promise<RecoverySet> {
+  return store.update(async (set) => {
+    const windowTabs = await getNormalWindowTabs(tab.windowId);
     if (!windowTabs || !isWebTab(tab)) {
       if (tab.id !== undefined) {
         removeTrackedTab(set, tab.id);
@@ -105,15 +107,14 @@ async function updateTrackedTab(
   });
 }
 
-async function removeIndividuallyClosedTab(
+function removeIndividuallyClosedTab(
   store: RecoveryStore,
   browserTabId: number,
   windowId: number,
-): Promise<void> {
-  const windowTabs = await getNormalWindowTabs(windowId);
-
-  await store.update((set) => {
+): Promise<RecoverySet> {
+  return store.update(async (set) => {
     removeTrackedTab(set, browserTabId);
+    const windowTabs = await getNormalWindowTabs(windowId);
 
     if (!windowTabs) {
       return;
@@ -124,12 +125,14 @@ async function removeIndividuallyClosedTab(
 }
 
 async function getNormalWindowTabs(windowId: number): Promise<chrome.tabs.Tab[] | undefined> {
-  try {
-    const browserWindow = await chrome.windows.get(windowId, { populate: true });
-    return browserWindow.type === "normal" ? browserWindow.tabs ?? [] : undefined;
-  } catch {
-    return undefined;
-  }
+  const browserWindow = await chrome.windows.get(windowId, { populate: true });
+  return browserWindow.type === "normal" ? browserWindow.tabs ?? [] : undefined;
+}
+
+function handleListenerOperation(context: string, operation: Promise<unknown>): void {
+  operation.catch((error: unknown) => {
+    console.error(`Failed to track ${context}`, error);
+  });
 }
 
 function reindexWindowGrouping(

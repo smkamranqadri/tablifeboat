@@ -110,17 +110,12 @@ test("keeps each Tracked Tab current through navigation and Individual Tab Closu
 
     const popupWindow = await extension.serviceWorker.evaluate(async (url) => {
       const createdWindow = await chrome.windows.create({ type: "popup", url });
-      return createdWindow.id;
+      return { windowId: createdWindow.id, tabId: createdWindow.tabs?.[0]?.id };
     }, `${origin}/second`);
-    expect(popupWindow).toEqual(expect.any(Number));
-    await expect
-      .poll(readTrackedTabs)
-      .toHaveLength(1);
-    expect((await readTrackedTabs())[0]?.recordId).toBe(readdedRecord!.recordId);
-    await extension.serviceWorker.evaluate(
-      async (windowId) => chrome.windows.remove(windowId),
-      popupWindow!,
-    );
+    expect(popupWindow).toEqual({
+      windowId: expect.any(Number),
+      tabId: expect.any(Number),
+    });
 
     const windowId = readdedRecord!.placement.windowId;
     const insertedTabId = await extension.serviceWorker.evaluate(
@@ -148,7 +143,17 @@ test("keeps each Tracked Tab current through navigation and Individual Tab Closu
         { browserTabId: insertedTabId, index: 0 },
         { browserTabId: readdedRecord!.browserTabId, index: 2 },
       ]);
+    expect(
+      (await readTrackedTabs()).some(
+        (trackedTab) => trackedTab.browserTabId === popupWindow.tabId,
+      ),
+    ).toBe(false);
     await expectProtectedCount(2);
+
+    await extension.serviceWorker.evaluate(
+      async (popupWindowId) => chrome.windows.remove(popupWindowId),
+      popupWindow.windowId!,
+    );
 
     await extension.serviceWorker.evaluate(
       async (tabId) => chrome.tabs.remove(tabId),

@@ -37,13 +37,13 @@ export class RecoveryStore {
     });
   }
 
-  update(mutator: (set: RecoverySet) => void): Promise<RecoverySet> {
+  update(mutator: (set: RecoverySet) => void | Promise<void>): Promise<RecoverySet> {
     return this.serialize(async () => {
       const { recoverySet } = (await chrome.storage.local.get("recoverySet")) as {
         recoverySet?: StoredRecoverySet;
       };
       const { set } = migrateRecoverySet(recoverySet);
-      mutator(set);
+      await mutator(set);
       await chrome.storage.local.set({ recoverySet: set });
       return set;
     });
