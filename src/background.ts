@@ -4,6 +4,10 @@ import {
   type TrackedTab,
 } from "./recovery-model.js";
 import { RecoveryStore } from "./recovery-store.js";
+import {
+  getRecoveryStatus,
+  synchronizeRecoveryBadge,
+} from "./recovery-status.js";
 import { isWebTab, startTabTracking } from "./tab-tracking.js";
 
 const store = new RecoveryStore();
@@ -55,13 +59,21 @@ async function captureEligibleWebTabs(): Promise<RecoverySet> {
   });
 }
 
-async function getProtectedTabCount(): Promise<number> {
+async function getCurrentRecoveryStatus() {
   await installationCapture;
   const recoverySet = await store.read();
-  return recoverySet.windows.reduce((count, window) => count + window.tabs.length, 0);
+  return getRecoveryStatus(recoverySet);
 }
 
 startTabTracking(store);
+void store.read().then(synchronizeRecoveryBadge);
+
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName !== "local" || !changes.recoverySet?.newValue) {
+    return;
+  }
+  void synchronizeRecoveryBadge(changes.recoverySet.newValue as RecoverySet);
+});
 
 chrome.runtime.onInstalled.addListener((details) => {
   if (details.reason !== "install") {
@@ -81,9 +93,7 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) =
     return undefined;
   }
 
-  void getProtectedTabCount().then((protectedTabCount) => {
-    sendResponse({ protectedTabCount });
-  });
+  void getCurrentRecoveryStatus().then(sendResponse);
 
   return true;
 });

@@ -48,6 +48,7 @@ test("persists Individual Tab Closure when placement reindex lookup fails", asyn
       },
     },
     windows: {
+      onRemoved: { addListener: () => undefined },
       get: async () => {
         throw new Error("window lookup failed");
       },
