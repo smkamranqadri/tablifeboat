@@ -114,13 +114,17 @@ function removeIndividuallyClosedTab(
 ): Promise<RecoverySet> {
   return store.update(async (set) => {
     removeTrackedTab(set, browserTabId);
-    const windowTabs = await getNormalWindowTabs(windowId);
-
-    if (!windowTabs) {
-      return;
+    try {
+      const windowTabs = await getNormalWindowTabs(windowId);
+      if (windowTabs) {
+        reindexWindowGrouping(set, windowId, windowTabs);
+      }
+    } catch (error: unknown) {
+      console.error(
+        "Failed to reindex Window Grouping after Individual Tab Closure",
+        error,
+      );
     }
-
-    reindexWindowGrouping(set, windowId, windowTabs);
   });
 }
 
