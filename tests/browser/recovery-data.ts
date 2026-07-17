@@ -1,27 +1,11 @@
 import type { Worker } from "@playwright/test";
+import type { RecoverySet } from "../../src/recovery-model";
 
-export interface TrackedTab {
-  recordId: string;
-  browserTabId?: number;
-  title: string;
-  url: string;
-  placement: {
-    windowId: number;
-    index: number;
-    pinned: boolean;
-  };
-}
-
-export interface WindowGrouping {
-  groupingId: string;
-  windowId: number;
-  tabs: TrackedTab[];
-}
-
-export interface RecoverySet {
-  version: 1;
-  windows: WindowGrouping[];
-}
+export type {
+  RecoverySet,
+  TrackedTab,
+  WindowGrouping,
+} from "../../src/recovery-model";
 
 export async function readRecoverySet(serviceWorker: Worker): Promise<RecoverySet | undefined> {
   return serviceWorker.evaluate(async () => {

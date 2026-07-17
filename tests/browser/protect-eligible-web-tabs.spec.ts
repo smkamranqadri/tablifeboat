@@ -82,10 +82,14 @@ test("protects existing eligible Web Tabs when the extension is installed", asyn
     expect(trackedTabs.every((tab) => tab.url.startsWith("http://"))).toBe(true);
     expect(new Set(trackedTabs.map((tab) => tab.browserTabId)).size).toBe(3);
     expect(
+      recoverySet.windows.every((window) =>
+        Number.isInteger(window.browserWindowId),
+      ),
+    ).toBe(true);
+    expect(
       trackedTabs.every(
         (tab) =>
           typeof tab.title === "string" &&
-          Number.isInteger(tab.placement.windowId) &&
           Number.isInteger(tab.placement.index) &&
           typeof tab.placement.pinned === "boolean",
       ),

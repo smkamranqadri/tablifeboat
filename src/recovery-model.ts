@@ -1,5 +1,4 @@
 export interface TabPlacement {
-  windowId: number;
   index: number;
   pinned: boolean;
 }
@@ -14,7 +13,7 @@ export interface TrackedTab {
 
 export interface WindowGrouping {
   groupingId: string;
-  windowId: number;
+  browserWindowId?: number;
   tabs: TrackedTab[];
 }
 

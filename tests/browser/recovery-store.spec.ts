@@ -29,7 +29,7 @@ test("awaits async mutators before the next queued update", async () => {
       await firstCanFinish;
       set.windows.push({
         groupingId: "first-grouping",
-        windowId: 1,
+        browserWindowId: 1,
         tabs: [],
       });
       operationOrder.push("first-end");
@@ -38,7 +38,7 @@ test("awaits async mutators before the next queued update", async () => {
       operationOrder.push("second");
       set.windows.push({
         groupingId: "second-grouping",
-        windowId: 2,
+        browserWindowId: 2,
         tabs: [],
       });
     });
@@ -50,8 +50,8 @@ test("awaits async mutators before the next queued update", async () => {
     expect(operationOrder).toEqual(["first-start", "first-end", "second"]);
     expect(storedRecoverySet).toMatchObject({
       windows: [
-        { groupingId: "first-grouping", windowId: 1 },
-        { groupingId: "second-grouping", windowId: 2 },
+        { groupingId: "first-grouping", browserWindowId: 1 },
+        { groupingId: "second-grouping", browserWindowId: 2 },
       ],
     });
   } finally {

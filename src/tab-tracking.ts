@@ -2,6 +2,7 @@ import {
   createDurableId,
   type RecoverySet,
   type TrackedTab,
+  type WindowGrouping,
 } from "./recovery-model.js";
 import type { RecoveryStore } from "./recovery-store.js";
 
@@ -26,8 +27,32 @@ export function startTabTracking(store: RecoveryStore): void {
     handleListenerOperation("tab creation", updateTrackedTab(store, tab, true));
   });
 
-  chrome.tabs.onUpdated.addListener((_tabId, _changeInfo, tab) => {
-    handleListenerOperation("tab update", updateTrackedTab(store, tab));
+  chrome.tabs.onUpdated.addListener((_tabId, changeInfo, tab) => {
+    handleListenerOperation(
+      "tab update",
+      updateTrackedTab(store, tab, changeInfo.pinned !== undefined),
+    );
+  });
+
+  chrome.tabs.onMoved.addListener((_tabId, moveInfo) => {
+    handleListenerOperation(
+      "Tab Placement reorder",
+      reindexTrackedWindow(store, moveInfo.windowId),
+    );
+  });
+
+  chrome.tabs.onDetached.addListener((_tabId, detachInfo) => {
+    handleListenerOperation(
+      "Tab Placement detachment",
+      reindexTrackedWindow(store, detachInfo.oldWindowId),
+    );
+  });
+
+  chrome.tabs.onAttached.addListener((tabId, attachInfo) => {
+    handleListenerOperation(
+      "Tab Placement attachment",
+      attachTrackedTab(store, tabId, attachInfo.newWindowId),
+    );
   });
 
   chrome.tabs.onRemoved.addListener((tabId, removeInfo) => {
@@ -67,7 +92,6 @@ function updateTrackedTab(
       existing.title = tab.title ?? tab.url;
       existing.url = tab.url;
       existing.placement = {
-        windowId: tab.windowId,
         index: tab.index,
         pinned: tab.pinned,
       };
@@ -77,15 +101,7 @@ function updateTrackedTab(
       return;
     }
 
-    let grouping = set.windows.find((window) => window.windowId === tab.windowId);
-    if (!grouping) {
-      grouping = {
-        groupingId: createDurableId(),
-        windowId: tab.windowId,
-        tabs: [],
-      };
-      set.windows.push(grouping);
-    }
+    const grouping = getOrCreateWindowGrouping(set, tab.windowId);
 
     const trackedTab: TrackedTab = {
       recordId: createDurableId(),
@@ -93,7 +109,6 @@ function updateTrackedTab(
       title: tab.title ?? tab.url,
       url: tab.url,
       placement: {
-        windowId: tab.windowId,
         index: tab.index,
         pinned: tab.pinned,
       },
@@ -129,8 +144,10 @@ function removeIndividuallyClosedTab(
 }
 
 async function getNormalWindowTabs(windowId: number): Promise<chrome.tabs.Tab[] | undefined> {
-  const browserWindow = await chrome.windows.get(windowId, { populate: true });
-  return browserWindow.type === "normal" ? browserWindow.tabs ?? [] : undefined;
+  const browserWindow = await chrome.windows.get(windowId);
+  return browserWindow.type === "normal"
+    ? chrome.tabs.query({ windowId })
+    : undefined;
 }
 
 function handleListenerOperation(context: string, operation: Promise<unknown>): void {
@@ -144,7 +161,9 @@ function reindexWindowGrouping(
   windowId: number,
   windowTabs: chrome.tabs.Tab[],
 ): void {
-  const grouping = set.windows.find((window) => window.windowId === windowId);
+  const grouping = set.windows.find(
+    (window) => window.browserWindowId === windowId,
+  );
   if (!grouping) {
     return;
   }
@@ -164,6 +183,83 @@ function reindexWindowGrouping(
   }
 
   grouping.tabs.sort((left, right) => left.placement.index - right.placement.index);
+}
+
+function reindexTrackedWindow(
+  store: RecoveryStore,
+  browserWindowId: number,
+): Promise<RecoverySet> {
+  return store.update(async (set) => {
+    const windowTabs = await getNormalWindowTabs(browserWindowId);
+    if (windowTabs) {
+      reindexWindowGrouping(set, browserWindowId, windowTabs);
+    }
+  });
+}
+
+function attachTrackedTab(
+  store: RecoveryStore,
+  browserTabId: number,
+  browserWindowId: number,
+): Promise<RecoverySet> {
+  return store.update(async (set) => {
+    const windowTabs = await getNormalWindowTabs(browserWindowId);
+    if (!windowTabs) {
+      removeTrackedTab(set, browserTabId);
+      return;
+    }
+
+    const sourceGrouping = set.windows.find((grouping) =>
+      grouping.tabs.some((tab) => tab.browserTabId === browserTabId),
+    );
+    const trackedTab = sourceGrouping?.tabs.find(
+      (tab) => tab.browserTabId === browserTabId,
+    );
+    const browserTab = windowTabs.find((tab) => tab.id === browserTabId);
+
+    if (!sourceGrouping || !trackedTab || !browserTab || !isWebTab(browserTab)) {
+      if (trackedTab) {
+        removeTrackedTab(set, browserTabId);
+      }
+      return;
+    }
+
+    sourceGrouping.tabs = sourceGrouping.tabs.filter(
+      (tab) => tab.browserTabId !== browserTabId,
+    );
+
+    const destinationGrouping = getOrCreateWindowGrouping(set, browserWindowId);
+
+    trackedTab.title = browserTab.title ?? browserTab.url;
+    trackedTab.url = browserTab.url;
+    trackedTab.placement = {
+      index: browserTab.index,
+      pinned: browserTab.pinned,
+    };
+    destinationGrouping.tabs.push(trackedTab);
+    set.windows = set.windows.filter((grouping) => grouping.tabs.length > 0);
+    reindexWindowGrouping(set, browserWindowId, windowTabs);
+  });
+}
+
+function getOrCreateWindowGrouping(
+  set: RecoverySet,
+  browserWindowId: number,
+): WindowGrouping {
+  const existing = set.windows.find(
+    (grouping) => grouping.browserWindowId === browserWindowId,
+  );
+  if (existing) {
+    return existing;
+  }
+
+  const grouping: WindowGrouping = {
+    groupingId: createDurableId(),
+    browserWindowId,
+    tabs: [],
+  };
+  set.windows.push(grouping);
+  return grouping;
 }
 
 function removeTrackedTab(set: RecoverySet, browserTabId: number): void {

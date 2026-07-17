@@ -20,7 +20,11 @@ async function captureEligibleWebTabs(): Promise<RecoverySet> {
       ),
     );
     const existingGroupings = new Map(
-      set.windows.map((window) => [window.windowId, window] as const),
+      set.windows.flatMap((window) =>
+        window.browserWindowId === undefined
+          ? []
+          : [[window.browserWindowId, window] as const],
+      ),
     );
 
     for (const tab of tabs) {
@@ -34,7 +38,6 @@ async function captureEligibleWebTabs(): Promise<RecoverySet> {
         title: tab.title ?? tab.url,
         url: tab.url,
         placement: {
-          windowId: tab.windowId,
           index: tab.index,
           pinned: tab.pinned,
         },
@@ -46,7 +49,7 @@ async function captureEligibleWebTabs(): Promise<RecoverySet> {
 
     set.windows = Array.from(windows, ([windowId, windowTabs]) => ({
       groupingId: existingGroupings.get(windowId)?.groupingId ?? createDurableId(),
-      windowId,
+      browserWindowId: windowId,
       tabs: windowTabs.sort((left, right) => left.placement.index - right.placement.index),
     }));
   });

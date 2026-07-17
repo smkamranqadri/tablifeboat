@@ -117,7 +117,10 @@ test("keeps each Tracked Tab current through navigation and Individual Tab Closu
       tabId: expect.any(Number),
     });
 
-    const windowId = readdedRecord!.placement.windowId;
+    const windowId = (await readRecoverySet(extension.serviceWorker))!.windows.find(
+      (window) =>
+        window.tabs.some((tab) => tab.recordId === readdedRecord!.recordId),
+    )!.browserWindowId!;
     const insertedTabId = await extension.serviceWorker.evaluate(
       async ({ targetWindowId, url }) => {
         const tab = await chrome.tabs.create({

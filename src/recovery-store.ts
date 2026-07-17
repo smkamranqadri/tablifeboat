@@ -2,16 +2,25 @@ import {
   createDurableId,
   EMPTY_RECOVERY_SET,
   type RecoverySet,
+  type TabPlacement,
   type TrackedTab,
   type WindowGrouping,
 } from "./recovery-model.js";
 
-interface StoredTrackedTab extends Omit<TrackedTab, "recordId"> {
-  recordId?: string;
+interface StoredTabPlacement extends TabPlacement {
+  windowId?: number;
 }
 
-interface StoredWindowGrouping extends Omit<WindowGrouping, "groupingId" | "tabs"> {
+interface StoredTrackedTab extends Omit<TrackedTab, "recordId" | "placement"> {
+  recordId?: string;
+  placement: StoredTabPlacement;
+}
+
+interface StoredWindowGrouping
+  extends Omit<WindowGrouping, "groupingId" | "browserWindowId" | "tabs"> {
   groupingId?: string;
+  browserWindowId?: number;
+  windowId?: number;
   tabs: StoredTrackedTab[];
 }
 
@@ -73,15 +82,27 @@ function migrateRecoverySet(storedSet: StoredRecoverySet | undefined): {
   let migrated = false;
   const windows = storedSet.windows.map((window): WindowGrouping => {
     const groupingId = window.groupingId ?? createDurableId();
-    migrated ||= window.groupingId === undefined;
+    const browserWindowId = window.browserWindowId ?? window.windowId;
+    migrated ||=
+      window.groupingId === undefined ||
+      window.windowId !== undefined;
 
     return {
-      ...window,
       groupingId,
+      browserWindowId,
       tabs: window.tabs.map((tab): TrackedTab => {
         const recordId = tab.recordId ?? createDurableId();
-        migrated ||= tab.recordId === undefined;
-        return { ...tab, recordId };
+        migrated ||= tab.recordId === undefined || tab.placement.windowId !== undefined;
+        return {
+          recordId,
+          browserTabId: tab.browserTabId,
+          title: tab.title,
+          url: tab.url,
+          placement: {
+            index: tab.placement.index,
+            pinned: tab.placement.pinned,
+          },
+        };
       }),
     };
   });

@@ -12,14 +12,14 @@ test("persists Individual Tab Closure when placement reindex lookup fails", asyn
     windows: [
       {
         groupingId: "grouping-1",
-        windowId: 7,
+        browserWindowId: 7,
         tabs: [
           {
             recordId: "record-1",
             browserTabId: 42,
             title: "Tracked page",
             url: "https://example.com/",
-            placement: { windowId: 7, index: 0, pinned: false },
+            placement: { index: 0, pinned: false },
           },
         ],
       },
@@ -38,6 +38,9 @@ test("persists Individual Tab Closure when placement reindex lookup fails", asyn
     tabs: {
       onCreated: { addListener: () => undefined },
       onUpdated: { addListener: () => undefined },
+      onMoved: { addListener: () => undefined },
+      onDetached: { addListener: () => undefined },
+      onAttached: { addListener: () => undefined },
       onRemoved: {
         addListener: (listener: typeof removedListener) => {
           removedListener = listener;
