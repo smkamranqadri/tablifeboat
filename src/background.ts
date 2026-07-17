@@ -6,7 +6,7 @@ import {
 import { RecoveryStore } from "./recovery-store.js";
 import {
   getRecoveryStatus,
-  synchronizeRecoveryBadge,
+  synchronizeRecoveryBadgeWithLogging,
 } from "./recovery-status.js";
 import { isWebTab, startTabTracking } from "./tab-tracking.js";
 
@@ -66,13 +66,21 @@ async function getCurrentRecoveryStatus() {
 }
 
 startTabTracking(store);
-void store.read().then(synchronizeRecoveryBadge);
+void store
+  .read()
+  .then((set) => synchronizeRecoveryBadgeWithLogging(set, "at startup"))
+  .catch((error: unknown) => {
+    console.error("Failed to read Recovery Data for badge synchronization at startup", error);
+  });
 
 chrome.storage.onChanged.addListener((changes, areaName) => {
   if (areaName !== "local" || !changes.recoverySet?.newValue) {
     return;
   }
-  void synchronizeRecoveryBadge(changes.recoverySet.newValue as RecoverySet);
+  synchronizeRecoveryBadgeWithLogging(
+    changes.recoverySet.newValue as RecoverySet,
+    "after Recovery Data changed",
+  );
 });
 
 chrome.runtime.onInstalled.addListener((details) => {

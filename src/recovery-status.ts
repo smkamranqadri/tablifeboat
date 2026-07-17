@@ -34,3 +34,12 @@ export async function synchronizeRecoveryBadge(set: RecoverySet): Promise<void> 
     text: missingTabCount === 0 ? "" : String(missingTabCount),
   });
 }
+
+export function synchronizeRecoveryBadgeWithLogging(
+  set: RecoverySet,
+  context: string,
+): void {
+  void synchronizeRecoveryBadge(set).catch((error: unknown) => {
+    console.error(`Failed to synchronize Recovery badge ${context}`, error);
+  });
+}

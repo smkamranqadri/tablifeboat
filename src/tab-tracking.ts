@@ -6,6 +6,16 @@ import {
 } from "./recovery-model.js";
 import type { RecoveryStore } from "./recovery-store.js";
 
+// Chromium may report the last tab's removal before reporting its window's removal.
+// Hold ambiguous removals briefly so the authoritative Window Closure event can win.
+export const WINDOW_CLOSURE_SETTLING_MS = 100;
+
+interface PendingTabRemoval {
+  timer: ReturnType<typeof setTimeout>;
+}
+
+type PendingWindowRemovals = Map<number, Map<number, PendingTabRemoval>>;
+
 export function isWebTab(tab: chrome.tabs.Tab): tab is chrome.tabs.Tab & {
   id: number;
   url: string;
@@ -23,7 +33,7 @@ export function isWebTab(tab: chrome.tabs.Tab): tab is chrome.tabs.Tab & {
 }
 
 export function startTabTracking(store: RecoveryStore): void {
-  const recentlyClosedWindowIds = new Set<number>();
+  const pendingWindowRemovals: PendingWindowRemovals = new Map();
 
   chrome.tabs.onCreated.addListener((tab) => {
     handleListenerOperation("tab creation", updateTrackedTab(store, tab, true));
@@ -59,31 +69,20 @@ export function startTabTracking(store: RecoveryStore): void {
 
   chrome.tabs.onRemoved.addListener((tabId, removeInfo) => {
     if (removeInfo.isWindowClosing) {
-      markWindowClosing(recentlyClosedWindowIds, removeInfo.windowId);
-      handleListenerOperation(
-        "Window Closure",
-        preserveClosedWindowGrouping(store, removeInfo.windowId),
-      );
+      handleWindowClosure(store, pendingWindowRemovals, removeInfo.windowId);
       return;
     }
 
-    handleListenerOperation(
-      "tab closure classification",
-      classifyTabClosure(
-        store,
-        tabId,
-        removeInfo.windowId,
-        recentlyClosedWindowIds,
-      ),
+    scheduleIndividualTabClosure(
+      store,
+      pendingWindowRemovals,
+      tabId,
+      removeInfo.windowId,
     );
   });
 
   chrome.windows.onRemoved.addListener((windowId) => {
-    markWindowClosing(recentlyClosedWindowIds, windowId);
-    handleListenerOperation(
-      "Window Closure",
-      preserveClosedWindowGrouping(store, windowId),
-    );
+    handleWindowClosure(store, pendingWindowRemovals, windowId);
   });
 }
 
@@ -142,48 +141,70 @@ function updateTrackedTab(
   });
 }
 
-async function classifyTabClosure(
+function scheduleIndividualTabClosure(
+  store: RecoveryStore,
+  pendingWindowRemovals: PendingWindowRemovals,
+  browserTabId: number,
+  windowId: number,
+): void {
+  const pendingTabs = pendingWindowRemovals.get(windowId) ?? new Map();
+  const existing = pendingTabs.get(browserTabId);
+  if (existing) {
+    clearTimeout(existing.timer);
+  }
+
+  const timer = setTimeout(() => {
+    pendingTabs.delete(browserTabId);
+    if (pendingTabs.size === 0) {
+      pendingWindowRemovals.delete(windowId);
+    }
+
+    handleListenerOperation(
+      "Individual Tab Closure",
+      removeIndividuallyClosedTab(store, browserTabId, windowId),
+    );
+  }, WINDOW_CLOSURE_SETTLING_MS);
+
+  pendingTabs.set(browserTabId, { timer });
+  pendingWindowRemovals.set(windowId, pendingTabs);
+}
+
+function handleWindowClosure(
+  store: RecoveryStore,
+  pendingWindowRemovals: PendingWindowRemovals,
+  browserWindowId: number,
+): void {
+  const pendingTabs = pendingWindowRemovals.get(browserWindowId);
+  if (pendingTabs) {
+    for (const pending of pendingTabs.values()) {
+      clearTimeout(pending.timer);
+    }
+    pendingWindowRemovals.delete(browserWindowId);
+  }
+
+  handleListenerOperation(
+    "Window Closure",
+    preserveClosedWindowGrouping(store, browserWindowId),
+  );
+}
+
+function removeIndividuallyClosedTab(
   store: RecoveryStore,
   browserTabId: number,
   windowId: number,
-  recentlyClosedWindowIds: Set<number>,
 ): Promise<RecoverySet> {
-  await new Promise<void>((resolve) => setTimeout(resolve, 0));
-
   return store.update(async (set) => {
-    if (recentlyClosedWindowIds.has(windowId)) {
-      preserveWindowGrouping(set, windowId);
-      return;
-    }
-
-    let windowTabs: chrome.tabs.Tab[] | undefined;
+    removeTrackedTab(set, browserTabId);
     try {
-      windowTabs = await getNormalWindowTabs(windowId);
-    } catch (error: unknown) {
-      if (
-        recentlyClosedWindowIds.has(windowId) ||
-        (error instanceof Error && /no window with id/i.test(error.message))
-      ) {
-        preserveWindowGrouping(set, windowId);
-        return;
+      const windowTabs = await getNormalWindowTabs(windowId);
+      if (windowTabs) {
+        reindexWindowGrouping(set, windowId, windowTabs);
       }
-
-      removeTrackedTab(set, browserTabId);
+    } catch (error: unknown) {
       console.error(
         "Failed to reindex Window Grouping after Individual Tab Closure",
         error,
       );
-      return;
-    }
-
-    if (windowTabs?.length === 0) {
-      preserveWindowGrouping(set, windowId);
-      return;
-    }
-
-    removeTrackedTab(set, browserTabId);
-    if (windowTabs) {
-      reindexWindowGrouping(set, windowId, windowTabs);
     }
   });
 }
@@ -207,11 +228,6 @@ function preserveWindowGrouping(set: RecoverySet, browserWindowId: number): void
   for (const tab of grouping.tabs) {
     delete tab.browserTabId;
   }
-}
-
-function markWindowClosing(windowIds: Set<number>, windowId: number): void {
-  windowIds.add(windowId);
-  setTimeout(() => windowIds.delete(windowId), 1_000);
 }
 
 async function getNormalWindowTabs(windowId: number): Promise<chrome.tabs.Tab[] | undefined> {
