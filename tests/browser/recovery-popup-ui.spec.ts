@@ -95,6 +95,7 @@ test("the Recovery Popup presents missing tabs by Window first", async () => {
       clientWidth: document.documentElement.clientWidth,
     }));
     expect(dimensions.bodyWidth).toBeLessThanOrEqual(384);
+    expect(dimensions.bodyWidth).toBe(384);
     expect(dimensions.scrollWidth).toBe(dimensions.clientWidth);
 
     await popup.emulateMedia({ colorScheme: "dark" });
@@ -147,6 +148,38 @@ test("the Recovery Popup presents missing tabs by Window first", async () => {
       { label: "Restore Window", hidden: false },
       { label: "Forget Window", hidden: false },
     ]);
+  } finally {
+    await extension.close();
+  }
+});
+
+test("the Recovery Popup keeps its designed width when opened from a narrow popup viewport", async () => {
+  const extension = await launchExtensionProfile();
+  try {
+    await seedRecoverySet(extension.serviceWorker, {
+      version: 1,
+      windows: [
+        {
+          groupingId: "first-window",
+          tabs: [
+            missingTab("Project notes", "https://notion.so/project", 0),
+            missingTab("Quarterly roadmap", "https://docs.google.com/roadmap", 1),
+          ],
+        },
+      ],
+    });
+    const popup = await extension.openPopup();
+    await popup.setViewportSize({ width: 80, height: 600 });
+    const dimensions = await popup.evaluate(() => ({
+      bodyWidth: document.body.getBoundingClientRect().width,
+      shellWidth: document.querySelector(".popup-shell")?.getBoundingClientRect().width,
+      scrollWidth: document.documentElement.scrollWidth,
+    }));
+    expect(dimensions).toEqual({
+      bodyWidth: 384,
+      shellWidth: 384,
+      scrollWidth: 384,
+    });
   } finally {
     await extension.close();
   }
