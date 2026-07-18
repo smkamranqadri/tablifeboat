@@ -68,6 +68,70 @@ function requiredElement<K extends keyof HTMLElementTagNameMap>(
   return element;
 }
 
+function setPending(
+  button: HTMLButtonElement,
+  pending: boolean,
+  pendingLabel: "Restoring…" | "Forgetting…",
+): void {
+  if (pending) {
+    button.dataset.idleLabel = button.textContent ?? "";
+    button.textContent = pendingLabel;
+    button.disabled = true;
+    button.setAttribute("aria-busy", "true");
+    return;
+  }
+  button.textContent = button.dataset.idleLabel ?? button.textContent;
+  button.disabled = false;
+  button.removeAttribute("aria-busy");
+}
+
+function showFailure(container: HTMLElement, message: string): void {
+  let alert = container.querySelector<HTMLElement>("[role='alert']");
+  if (!alert) {
+    alert = requiredElement("p", "inline-error");
+    alert.role = "alert";
+    container.append(alert);
+  }
+  alert.textContent = message;
+}
+
+function announceStatus(message: string): void {
+  const status = document.querySelector<HTMLElement>("#popup-status");
+  if (status) status.textContent = message;
+}
+
+function failedNotice(result: RestoreResult, notice: RecoveryNotice): RecoveryNotice | undefined {
+  return result.failedRecordIds.length > 0 ? notice : undefined;
+}
+
+async function refreshAndRestoreFocus(
+  actions: PopupActions,
+  notice: RecoveryNotice | undefined,
+  groupingId?: string,
+): Promise<void> {
+  await actions.refresh(notice);
+  if (groupingId) {
+    const card = document.querySelector<HTMLElement>(
+      `[data-grouping-id="${CSS.escape(groupingId)}"]`,
+    );
+    const restoreWindow = card?.querySelector<HTMLButtonElement>(".restore-window");
+    if (restoreWindow) {
+      restoreWindow.focus();
+      return;
+    }
+  }
+  const restoreAll = document.querySelector<HTMLButtonElement>("#restore-all:not([hidden])");
+  if (restoreAll) {
+    restoreAll.focus();
+    return;
+  }
+  const heading = document.querySelector<HTMLElement>("#popup-title");
+  if (heading) {
+    heading.tabIndex = -1;
+    heading.focus();
+  }
+}
+
 function plural(count: number, singular: string, pluralForm = `${singular}s`): string {
   return count === 1 ? singular : pluralForm;
 }
@@ -100,31 +164,31 @@ function renderSummary(summary: RecoverySummary, actions: PopupActions): HTMLEle
   text.append(missingTabs, windows);
 
   const restoreAll = requiredElement("button", "button button-primary");
+  restoreAll.id = "restore-all";
   restoreAll.type = "button";
   restoreAll.textContent = "Restore All";
   restoreAll.addEventListener("click", async () => {
-    restoreAll.disabled = true;
+    const pendingLabel = "Restoring…" as const;
+    setPending(restoreAll, true, pendingLabel);
+    announceStatus("Restoring all missing tabs");
     try {
-      await actions.restoreAll();
-      await actions.refresh();
+      const result = await actions.restoreAll();
+      await refreshAndRestoreFocus(
+        actions,
+        failedNotice(result, { scope: "summary", message: "Could not restore all missing tabs" }),
+      );
+      announceStatus("Recovery finished");
     } catch (error: unknown) {
-      restoreAll.disabled = false;
-      console.error("Failed to restore all Missing Tabs", error);
+      showFailure(section, "Could not restore all missing tabs");
+    } finally {
+      setPending(restoreAll, false, pendingLabel);
     }
   });
   section.append(text, restoreAll);
   return section;
 }
 
-async function sendForgetRequest(request: () => Promise<ForgetResult>, actions: PopupActions): Promise<void> {
-  const result = await request();
-  if (!result.forgotten) {
-    throw new Error(`Recovery Data was not forgotten: ${result.reason ?? "unknown"}`);
-  }
-  await actions.refresh();
-}
-
-function renderTabMenu(tab: TrackedTabSummary, actions: PopupActions): HTMLElement {
+function renderTabMenu(tab: TrackedTabSummary, actions: PopupActions, row: HTMLElement): HTMLElement {
   const wrapper = requiredElement("div", "tab-menu");
   const button = requiredElement("button", "button button-ghost tab-menu-trigger");
   const menu = requiredElement("div", "tab-menu-content");
@@ -145,12 +209,21 @@ function renderTabMenu(tab: TrackedTabSummary, actions: PopupActions): HTMLEleme
   forget.textContent = "Forget tab";
   forget.setAttribute("aria-label", `Forget Tab: ${tab.title}`);
   forget.addEventListener("click", async () => {
-    forget.disabled = true;
+    const pendingLabel = "Forgetting…" as const;
+    setPending(forget, true, pendingLabel);
+    announceStatus(`Forgetting ${tab.title}`);
     try {
-      await sendForgetRequest(() => actions.forgetTab(tab.recordId), actions);
+      const result = await actions.forgetTab(tab.recordId);
+      if (!result.forgotten) {
+        showFailure(row, "Could not forget this tab");
+        return;
+      }
+      await actions.refresh();
+      announceStatus("Tab forgotten");
     } catch (error: unknown) {
-      forget.disabled = false;
-      console.error("Failed to forget Missing Tab", error);
+      showFailure(row, "Could not forget this tab");
+    } finally {
+      setPending(forget, false, pendingLabel);
     }
   });
 
@@ -192,6 +265,7 @@ function renderWindowGrouping(
   actions: PopupActions,
 ): HTMLElement {
   const section = requiredElement("section", "missing-window-grouping");
+  section.dataset.groupingId = grouping.groupingId;
   section.setAttribute("aria-label", "Missing Window Grouping");
 
   const header = requiredElement("div", "window-header");
@@ -203,6 +277,7 @@ function renderWindowGrouping(
 
   for (const tab of grouping.tabs) {
     const row = requiredElement("div", "tab-row");
+    row.dataset.recordId = tab.recordId;
     const tabCopy = requiredElement("div", "tab-copy");
     const link = requiredElement("a", "tab-title");
     link.href = tab.url;
@@ -218,20 +293,25 @@ function renderWindowGrouping(
     restoreTabButton.textContent = "Restore Tab";
     restoreTabButton.setAttribute("aria-label", `Restore Tab: ${tab.title}`);
     restoreTabButton.addEventListener("click", async () => {
-      restoreTabButton.disabled = true;
+      const pendingLabel = "Restoring…" as const;
+      setPending(restoreTabButton, true, pendingLabel);
+      announceStatus(`Restoring ${tab.title}`);
       try {
         const result = await actions.restoreTab(tab.recordId);
-        if (!result.restoredRecordIds.includes(tab.recordId)) {
-          throw new Error("Missing Tab was not restored");
-        }
-        await actions.refresh();
+        await refreshAndRestoreFocus(
+          actions,
+          failedNotice(result, { scope: "tab", recordId: tab.recordId, message: "Could not restore this tab" }),
+          grouping.groupingId,
+        );
+        announceStatus("Tab restored");
       } catch (error: unknown) {
-        restoreTabButton.disabled = false;
-        console.error("Failed to restore Missing Tab", error);
+        showFailure(row, "Could not restore this tab");
+      } finally {
+        setPending(restoreTabButton, false, pendingLabel);
       }
     });
 
-    tabActions.append(restoreTabButton, renderTabMenu(tab, actions));
+    tabActions.append(restoreTabButton, renderTabMenu(tab, actions, row));
     row.append(tabCopy, tabActions);
     section.append(row);
   }
@@ -242,13 +322,24 @@ function renderWindowGrouping(
   restoreButton.dataset.groupingId = grouping.groupingId;
   restoreButton.textContent = "Restore Window";
   restoreButton.addEventListener("click", async () => {
-    restoreButton.disabled = true;
+    const pendingLabel = "Restoring…" as const;
+    setPending(restoreButton, true, pendingLabel);
+    announceStatus("Restoring window");
     try {
-      await actions.restoreWindow(grouping.groupingId);
-      await actions.refresh();
+      const result = await actions.restoreWindow(grouping.groupingId);
+      await refreshAndRestoreFocus(
+        actions,
+        failedNotice(result, {
+          scope: "grouping",
+          groupingId: grouping.groupingId,
+          message: "Could not restore this window",
+        }),
+      );
+      announceStatus("Window restored");
     } catch (error: unknown) {
-      restoreButton.disabled = false;
-      console.error("Failed to restore Window Grouping", error);
+      showFailure(section, "Could not restore this window");
+    } finally {
+      setPending(restoreButton, false, pendingLabel);
     }
   });
   footer.append(restoreButton);
@@ -262,12 +353,21 @@ function renderWindowGrouping(
         return;
       }
 
-      forgetWindowButton.disabled = true;
+      const pendingLabel = "Forgetting…" as const;
+      setPending(forgetWindowButton, true, pendingLabel);
+      announceStatus("Forgetting window");
       try {
-        await sendForgetRequest(() => actions.forgetWindow(grouping.groupingId), actions);
+        const result = await actions.forgetWindow(grouping.groupingId);
+        if (!result.forgotten) {
+          showFailure(section, "Could not forget this window");
+          return;
+        }
+        await actions.refresh();
+        announceStatus("Window forgotten");
       } catch (error: unknown) {
-        forgetWindowButton.disabled = false;
-        console.error("Failed to forget Window Grouping", error);
+        showFailure(section, "Could not forget this window");
+      } finally {
+        setPending(forgetWindowButton, false, pendingLabel);
       }
     });
     footer.append(forgetWindowButton);
@@ -298,5 +398,17 @@ export function renderRecoveryPopup(
     groupings.append(renderWindowGrouping(grouping, index, actions));
   }
   root.replaceChildren(renderSummary(summary, actions), groupings);
-  void notice;
+  renderNotice(root, notice);
+}
+
+function renderNotice(root: HTMLElement, notice?: RecoveryNotice): void {
+  if (!notice) return;
+  const selector =
+    notice.scope === "summary"
+      ? ".recovery-summary"
+      : notice.scope === "grouping"
+        ? `[data-grouping-id="${CSS.escape(notice.groupingId)}"]`
+        : `[data-record-id="${CSS.escape(notice.recordId)}"]`;
+  const scope = root.querySelector<HTMLElement>(selector);
+  if (scope) showFailure(scope, notice.message);
 }
