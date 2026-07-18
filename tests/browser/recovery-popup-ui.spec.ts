@@ -58,6 +58,18 @@ test("the Recovery Popup presents missing tabs by Window first", async () => {
     await expect(card.getByRole("button", { name: "Restore Window" })).toBeVisible();
     await expect(card.getByText("notion.so", { exact: true })).toBeVisible();
     await expect(card.getByRole("button", { name: "Restore Tab: Project notes" })).toBeVisible();
+    const moreActions = popup.getByRole("button", {
+      name: "More actions for Project notes",
+    });
+    await expect(moreActions).toHaveAttribute("aria-expanded", "false");
+    await moreActions.click();
+    await expect(moreActions).toHaveAttribute("aria-expanded", "true");
+    await expect(
+      popup.getByRole("menuitem", { name: "Forget Tab: Project notes" }),
+    ).toBeVisible();
+    await popup.keyboard.press("Escape");
+    await expect(moreActions).toBeFocused();
+    await expect(moreActions).toHaveAttribute("aria-expanded", "false");
   } finally {
     await extension.close();
   }
