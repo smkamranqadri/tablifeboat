@@ -5,6 +5,7 @@ import {
 } from "./recovery-model.js";
 import {
   restoreAllMissingTabs,
+  restoreMissingTab,
   restoreWindowGrouping,
 } from "./manual-recovery.js";
 import { RecoveryStore } from "./recovery-store.js";
@@ -87,18 +88,40 @@ async function restoreOneWindowGrouping(groupingId: string) {
   return result;
 }
 
+function automatedTabCreationFailureHook() {
+  return isAutomatedTestBuild
+    ? (recordId: string) => {
+        if (recordId !== failNextTabCreationRecordId) {
+          return;
+        }
+        failNextTabCreationRecordId = undefined;
+        throw new Error(`Injected tab creation failure for ${recordId}`);
+      }
+    : undefined;
+}
+
+async function restoreOneMissingTab(recordId: string) {
+  await installationCapture;
+  let result;
+  try {
+    const activeWindow = await chrome.windows.getLastFocused({
+      windowTypes: ["normal"],
+    });
+    result = await restoreMissingTab(store, recordId, activeWindow, {
+      beforeCreateTab: automatedTabCreationFailureHook(),
+    });
+  } catch (error: unknown) {
+    console.error(`Could not resolve an active window for ${recordId}`, error);
+    result = { restoredRecordIds: [], failedRecordIds: [recordId] };
+  }
+  await synchronizeRecoveryBadge(await store.read());
+  return result;
+}
+
 async function restoreAllWindowGroupings() {
   await installationCapture;
   const result = await restoreAllMissingTabs(store, {
-    beforeCreateTab: isAutomatedTestBuild
-      ? (recordId) => {
-          if (recordId !== failNextTabCreationRecordId) {
-            return;
-          }
-          failNextTabCreationRecordId = undefined;
-          throw new Error(`Injected tab creation failure for ${recordId}`);
-        }
-      : undefined,
+    beforeCreateTab: automatedTabCreationFailureHook(),
   });
   await synchronizeRecoveryBadge(await store.read());
   return result;
@@ -186,6 +209,15 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) =
 
   if (message.type === "restoreAll") {
     void restoreAllWindowGroupings().then(sendResponse);
+    return true;
+  }
+
+  if (
+    message.type === "restoreTab" &&
+    "recordId" in message &&
+    typeof message.recordId === "string"
+  ) {
+    void restoreOneMissingTab(message.recordId).then(sendResponse);
     return true;
   }
 

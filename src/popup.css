@@ -62,7 +62,13 @@ a {
   margin-top: 0.75rem;
 }
 
+.tab-actions {
+  display: flex;
+  gap: 0.375rem;
+}
+
 .restore-window,
+.restore-tab,
 .forget-window,
 .forget-tab {
   border: 1px solid currentColor;
@@ -78,6 +84,7 @@ a {
 }
 
 .restore-window:disabled,
+.restore-tab:disabled,
 .forget-window:disabled,
 .forget-tab:disabled {
   cursor: wait;

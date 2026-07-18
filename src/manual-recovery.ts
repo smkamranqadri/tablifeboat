@@ -1,4 +1,4 @@
-import type { TabPlacement } from "./recovery-model.js";
+import { createDurableId, type TabPlacement } from "./recovery-model.js";
 import type { RecoveryStore } from "./recovery-store.js";
 
 export interface RestoreWindowGroupingResult {
@@ -21,6 +21,106 @@ interface MissingTabSnapshot {
 interface RestoredBrowserTab {
   browserTabId: number;
   browserWindowId: number;
+}
+
+export async function restoreMissingTab(
+  store: RecoveryStore,
+  recordId: string,
+  activeWindow: chrome.windows.Window,
+  options: ManualRecoveryOptions = {},
+): Promise<RestoreWindowGroupingResult> {
+  const recoverySet = await store.read();
+  const existingRecord = recoverySet.windows
+    .flatMap((grouping) => grouping.tabs)
+    .find((tab) => tab.recordId === recordId);
+  if (!existingRecord || existingRecord.browserTabId !== undefined) {
+    return { restoredRecordIds: [], failedRecordIds: [] };
+  }
+
+  if (
+    activeWindow.id === undefined ||
+    activeWindow.incognito ||
+    activeWindow.type !== "normal"
+  ) {
+    return { restoredRecordIds: [], failedRecordIds: [recordId] };
+  }
+
+  let createdBrowserTabId: number | undefined;
+  const missingTabUnavailable = new Error(
+    "Missing Tab is no longer available for Manual Recovery",
+  );
+  try {
+    await store.update(async (set) => {
+      const sourceGrouping = set.windows.find((grouping) =>
+        grouping.tabs.some((tab) => tab.recordId === recordId),
+      );
+      const trackedTab = sourceGrouping?.tabs.find(
+        (tab) => tab.recordId === recordId,
+      );
+      if (!sourceGrouping || !trackedTab || trackedTab.browserTabId !== undefined) {
+        throw missingTabUnavailable;
+      }
+
+      options.beforeCreateTab?.(recordId);
+      const browserTab = await chrome.tabs.create({
+        windowId: activeWindow.id,
+        url: trackedTab.url,
+        active: true,
+      });
+      if (browserTab.id === undefined) {
+        throw new Error("Chromium did not return the restored tab ID");
+      }
+      createdBrowserTabId = browserTab.id;
+
+      const sourceTabIndex = sourceGrouping.tabs.indexOf(trackedTab);
+      sourceGrouping.tabs.splice(sourceTabIndex, 1);
+      trackedTab.browserTabId = browserTab.id;
+      trackedTab.title = browserTab.pendingUrl
+        ? trackedTab.title
+        : (browserTab.title ?? trackedTab.title);
+      trackedTab.url = browserTab.pendingUrl ?? browserTab.url ?? trackedTab.url;
+      trackedTab.placement = {
+        index: browserTab.index,
+        pinned: browserTab.pinned,
+      };
+      delete trackedTab.missingReason;
+
+      let targetGrouping = set.windows.find(
+        (grouping) => grouping.browserWindowId === activeWindow.id,
+      );
+      if (!targetGrouping) {
+        targetGrouping = {
+          groupingId: createDurableId(),
+          browserWindowId: activeWindow.id,
+          tabs: [],
+        };
+        set.windows.push(targetGrouping);
+      }
+      targetGrouping.tabs.push(trackedTab);
+      targetGrouping.tabs.sort(
+        (left, right) => left.placement.index - right.placement.index,
+      );
+      set.windows = set.windows.filter((grouping) => grouping.tabs.length > 0);
+    });
+
+    return { restoredRecordIds: [recordId], failedRecordIds: [] };
+  } catch (error: unknown) {
+    if (error === missingTabUnavailable) {
+      return { restoredRecordIds: [], failedRecordIds: [] };
+    }
+    if (createdBrowserTabId !== undefined) {
+      try {
+        await chrome.tabs.remove(createdBrowserTabId);
+      } catch (rollbackError: unknown) {
+        console.error(
+          `Could not roll back restored browser tab ${createdBrowserTabId}`,
+          rollbackError,
+        );
+      }
+    }
+    console.error(`Failed to restore Missing Tab ${recordId}`, error);
+    return { restoredRecordIds: [], failedRecordIds: [recordId] };
+  }
 }
 
 export async function restoreWindowGrouping(

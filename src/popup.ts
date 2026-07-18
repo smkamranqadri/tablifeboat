@@ -21,6 +21,11 @@ interface ForgetResult {
   reason?: string;
 }
 
+interface RestoreResult {
+  restoredRecordIds: string[];
+  failedRecordIds: string[];
+}
+
 async function sendForgetRequest(message: object): Promise<void> {
   const result = (await chrome.runtime.sendMessage(message)) as ForgetResult;
   if (!result.forgotten) {
@@ -68,6 +73,31 @@ async function renderRecoverySummary(): Promise<void> {
         link.title = tab.url;
         tabDetails.append(link);
 
+        const tabActions = document.createElement("div");
+        tabActions.className = "tab-actions";
+
+        const restoreTabButton = document.createElement("button");
+        restoreTabButton.type = "button";
+        restoreTabButton.className = "restore-tab";
+        restoreTabButton.textContent = "Restore Tab";
+        restoreTabButton.setAttribute("aria-label", `Restore Tab: ${tab.title}`);
+        restoreTabButton.addEventListener("click", async () => {
+          restoreTabButton.disabled = true;
+          try {
+            const result = (await chrome.runtime.sendMessage({
+              type: "restoreTab",
+              recordId: tab.recordId,
+            })) as RestoreResult;
+            if (!result.restoredRecordIds.includes(tab.recordId)) {
+              throw new Error("Missing Tab was not restored");
+            }
+            await renderRecoverySummary();
+          } catch (error: unknown) {
+            restoreTabButton.disabled = false;
+            console.error("Failed to restore Missing Tab", error);
+          }
+        });
+
         const forgetTabButton = document.createElement("button");
         forgetTabButton.type = "button";
         forgetTabButton.className = "forget-tab";
@@ -83,7 +113,8 @@ async function renderRecoverySummary(): Promise<void> {
           }
         });
 
-        item.append(tabDetails, forgetTabButton);
+        tabActions.append(restoreTabButton, forgetTabButton);
+        item.append(tabDetails, tabActions);
         list.append(item);
       }
       section.append(list);
