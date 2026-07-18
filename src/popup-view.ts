@@ -49,11 +49,52 @@ function requiredElement<K extends keyof HTMLElementTagNameMap>(
   return element;
 }
 
-function renderProtectedCount(count: number): HTMLParagraphElement {
-  const paragraph = requiredElement("p", "protected-count");
-  paragraph.id = "protected-count";
-  paragraph.textContent = `${count} open protected ${count === 1 ? "tab" : "tabs"}`;
-  return paragraph;
+function plural(count: number, singular: string, pluralForm = `${singular}s`): string {
+  return count === 1 ? singular : pluralForm;
+}
+
+function hostname(url: string): string {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return url;
+  }
+}
+
+function renderEmptyState(): HTMLElement {
+  const section = requiredElement("section", "empty-state");
+  const heading = requiredElement("h2");
+  heading.textContent = "All tabs are available";
+  const copy = requiredElement("p");
+  copy.textContent = "Nothing needs recovery right now.";
+  section.append(heading, copy);
+  return section;
+}
+
+function renderSummary(summary: RecoverySummary, actions: PopupActions): HTMLElement {
+  const section = requiredElement("section", "recovery-summary");
+  const text = requiredElement("div", "recovery-summary-copy");
+  const missingTabs = requiredElement("strong");
+  missingTabs.textContent = `${summary.missingTabCount} ${plural(summary.missingTabCount, "tab")} missing`;
+  const windows = requiredElement("span");
+  windows.textContent = `${summary.missingWindowGroupings.length} missing ${plural(summary.missingWindowGroupings.length, "window")}`;
+  text.append(missingTabs, windows);
+
+  const restoreAll = requiredElement("button", "button button-primary");
+  restoreAll.type = "button";
+  restoreAll.textContent = "Restore All";
+  restoreAll.addEventListener("click", async () => {
+    restoreAll.disabled = true;
+    try {
+      await actions.restoreAll();
+      await actions.refresh();
+    } catch (error: unknown) {
+      restoreAll.disabled = false;
+      console.error("Failed to restore all Missing Tabs", error);
+    }
+  });
+  section.append(text, restoreAll);
+  return section;
 }
 
 async function sendForgetRequest(request: () => Promise<ForgetResult>, actions: PopupActions): Promise<void> {
@@ -64,30 +105,34 @@ async function sendForgetRequest(request: () => Promise<ForgetResult>, actions: 
   await actions.refresh();
 }
 
-function renderLegacyWindowGrouping(
+function renderWindowGrouping(
   grouping: WindowGroupingSummary,
+  index: number,
   actions: PopupActions,
 ): HTMLElement {
   const section = requiredElement("section", "missing-window-grouping");
   section.setAttribute("aria-label", "Missing Window Grouping");
 
+  const header = requiredElement("div", "window-header");
   const heading = requiredElement("h2");
-  heading.textContent = "Missing Window Grouping";
-  section.append(heading);
+  heading.textContent = `Window ${index + 1}`;
+  heading.setAttribute("aria-label", "Missing Window Grouping");
+  header.append(heading);
+  section.append(header);
 
-  const list = requiredElement("ul");
   for (const tab of grouping.tabs) {
-    const item = requiredElement("li");
-    const tabDetails = requiredElement("span", "tab-details");
-    const link = requiredElement("a");
+    const row = requiredElement("div", "tab-row");
+    const tabCopy = requiredElement("div", "tab-copy");
+    const link = requiredElement("a", "tab-title");
     link.href = tab.url;
-    link.textContent = tab.title;
     link.title = tab.url;
-    tabDetails.append(link);
+    link.textContent = tab.title;
+    const host = requiredElement("span", "tab-hostname");
+    host.textContent = hostname(tab.url);
+    tabCopy.append(link, host);
 
     const tabActions = requiredElement("div", "tab-actions");
-
-    const restoreTabButton = requiredElement("button", "restore-tab");
+    const restoreTabButton = requiredElement("button", "button restore-tab");
     restoreTabButton.type = "button";
     restoreTabButton.textContent = "Restore Tab";
     restoreTabButton.setAttribute("aria-label", `Restore Tab: ${tab.title}`);
@@ -105,7 +150,7 @@ function renderLegacyWindowGrouping(
       }
     });
 
-    const forgetTabButton = requiredElement("button", "forget-tab");
+    const forgetTabButton = requiredElement("button", "button button-ghost forget-tab");
     forgetTabButton.type = "button";
     forgetTabButton.textContent = "Forget Tab";
     forgetTabButton.setAttribute("aria-label", `Forget Tab: ${tab.title}`);
@@ -118,16 +163,13 @@ function renderLegacyWindowGrouping(
         console.error("Failed to forget Missing Tab", error);
       }
     });
-
     tabActions.append(restoreTabButton, forgetTabButton);
-    item.append(tabDetails, tabActions);
-    list.append(item);
+    row.append(tabCopy, tabActions);
+    section.append(row);
   }
-  section.append(list);
 
-  const windowActions = requiredElement("div", "window-actions");
-
-  const restoreButton = requiredElement("button", "restore-window");
+  const footer = requiredElement("div", "window-footer");
+  const restoreButton = requiredElement("button", "button button-primary restore-window");
   restoreButton.type = "button";
   restoreButton.dataset.groupingId = grouping.groupingId;
   restoreButton.textContent = "Restore Window";
@@ -141,10 +183,10 @@ function renderLegacyWindowGrouping(
       console.error("Failed to restore Window Grouping", error);
     }
   });
-  windowActions.append(restoreButton);
+  footer.append(restoreButton);
 
   if (grouping.entirelyMissing) {
-    const forgetWindowButton = requiredElement("button", "forget-window");
+    const forgetWindowButton = requiredElement("button", "button button-ghost button-danger forget-window");
     forgetWindowButton.type = "button";
     forgetWindowButton.textContent = "Forget Window";
     forgetWindowButton.addEventListener("click", async () => {
@@ -160,9 +202,9 @@ function renderLegacyWindowGrouping(
         console.error("Failed to forget Window Grouping", error);
       }
     });
-    windowActions.append(forgetWindowButton);
+    footer.append(forgetWindowButton);
   }
-  section.append(windowActions);
+  section.append(footer);
   return section;
 }
 
@@ -174,33 +216,19 @@ export function renderRecoveryPopup(
 ): void {
   const protectedCount = document.querySelector<HTMLParagraphElement>("#protected-count");
   if (protectedCount) {
-    const noun = summary.protectedTabCount === 1 ? "tab" : "tabs";
-    protectedCount.textContent = `${summary.protectedTabCount} open protected ${noun}`;
+    protectedCount.textContent = `${summary.protectedTabCount} open protected ${plural(summary.protectedTabCount, "tab")}`;
   }
 
-  const restoreAll = requiredElement("button");
-  restoreAll.id = "restore-all";
-  restoreAll.type = "button";
-  restoreAll.textContent = "Restore All";
-  restoreAll.hidden = summary.missingWindowGroupings.length === 0;
-  restoreAll.addEventListener("click", async () => {
-    restoreAll.disabled = true;
-    try {
-      await actions.restoreAll();
-      await actions.refresh();
-    } catch (error: unknown) {
-      console.error("Failed to restore all Missing Tabs", error);
-    } finally {
-      restoreAll.disabled = false;
-    }
-  });
+  if (summary.missingWindowGroupings.length === 0) {
+    root.replaceChildren(renderEmptyState());
+    return;
+  }
 
   const groupings = requiredElement("div");
   groupings.id = "missing-window-groupings";
-  groupings.setAttribute("aria-live", "polite");
-  for (const grouping of summary.missingWindowGroupings) {
-    groupings.append(renderLegacyWindowGrouping(grouping, actions));
+  for (const [index, grouping] of summary.missingWindowGroupings.entries()) {
+    groupings.append(renderWindowGrouping(grouping, index, actions));
   }
-  root.replaceChildren(restoreAll, groupings);
+  root.replaceChildren(renderSummary(summary, actions), groupings);
   void notice;
 }

@@ -7,13 +7,15 @@
     <link rel="stylesheet" href="popup.css" />
   </head>
   <body>
-    <main>
-      <h1>Tab Recovery</h1>
-      <p id="protected-count">0 open protected tabs</p>
-      <div id="popup-content">
-        <button id="restore-all" type="button">Restore All</button>
-        <div id="missing-window-groupings" aria-live="polite"></div>
-      </div>
+    <main class="popup-shell" aria-labelledby="popup-title">
+      <header class="popup-header">
+        <div>
+          <h1 id="popup-title">Tab Recovery</h1>
+          <p id="protected-count" class="protected-count">0 open protected tabs</p>
+        </div>
+      </header>
+      <p id="popup-status" class="sr-only" role="status" aria-live="polite"></p>
+      <div id="popup-content" aria-live="polite"></div>
     </main>
     <script src="popup.js" type="module"></script>
   </body>
