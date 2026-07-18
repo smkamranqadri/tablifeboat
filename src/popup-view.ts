@@ -131,7 +131,6 @@ function renderLegacyWindowGrouping(
   restoreButton.type = "button";
   restoreButton.dataset.groupingId = grouping.groupingId;
   restoreButton.textContent = "Restore Window";
-  restoreButton.setAttribute("aria-label", "Restore Window Grouping");
   restoreButton.addEventListener("click", async () => {
     restoreButton.disabled = true;
     try {
@@ -148,7 +147,6 @@ function renderLegacyWindowGrouping(
     const forgetWindowButton = requiredElement("button", "forget-window");
     forgetWindowButton.type = "button";
     forgetWindowButton.textContent = "Forget Window";
-    forgetWindowButton.setAttribute("aria-label", "Forget Window Grouping");
     forgetWindowButton.addEventListener("click", async () => {
       if (!window.confirm("Permanently forget this Window Grouping and all of its tabs?")) {
         return;
