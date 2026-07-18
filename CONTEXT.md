@@ -17,7 +17,7 @@ The closing of a browser window and all tabs it contains, whether intentional or
 _Avoid_: Bulk tab closure
 
 **Manual Recovery**:
-A user-initiated action that repairs a partially missing Window Grouping or recreates one or all entirely missing Window Groupings from the Recovery Set. Recovery never begins automatically when the browser starts.
+A user-initiated action that reopens Missing Tabs from the Recovery Set. Restore Window and Restore All repair a partially missing source Window Grouping or recreate one or all entirely missing source Window Groupings with their saved placement. Restore Tab is the approved exception: it opens one selected Missing Tab in the current active normal window and moves that same durable record into the active Window Grouping at its current browser placement. Recovery never begins automatically when the browser starts.
 _Avoid_: Automatic restore, startup restore
 
 **Window Grouping**:
@@ -61,7 +61,7 @@ A Tracked Tab whose current page uses an HTTP or HTTPS address. Browser-internal
 _Avoid_: Special page, local tab
 
 **Tab Placement**:
-A Web Tab's Window Grouping, position within that window, and pinned or unpinned state. Manual Recovery preserves this state but not richer browser or page state.
+A Web Tab's Window Grouping, position within that window, and pinned or unpinned state. Restore Window and Restore All preserve the source Window Grouping and saved placement for the Missing Tabs they recover. Restore Tab instead moves the selected durable record into the current active normal window and adopts its current browser placement. Manual Recovery does not preserve richer browser or page state.
 _Avoid_: Tab state, page state
 
 **Recovery Popup**:

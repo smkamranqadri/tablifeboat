@@ -26,7 +26,7 @@ interface RestoredBrowserTab {
 export async function restoreMissingTab(
   store: RecoveryStore,
   recordId: string,
-  activeWindow: chrome.windows.Window,
+  activeWindow: chrome.windows.Window | undefined,
   options: ManualRecoveryOptions = {},
 ): Promise<RestoreWindowGroupingResult> {
   const recoverySet = await store.read();
@@ -38,6 +38,7 @@ export async function restoreMissingTab(
   }
 
   if (
+    !activeWindow ||
     activeWindow.id === undefined ||
     activeWindow.incognito ||
     activeWindow.type !== "normal"

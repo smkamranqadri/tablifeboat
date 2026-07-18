@@ -102,18 +102,17 @@ function automatedTabCreationFailureHook() {
 
 async function restoreOneMissingTab(recordId: string) {
   await installationCapture;
-  let result;
+  let activeWindow: chrome.windows.Window | undefined;
   try {
-    const activeWindow = await chrome.windows.getLastFocused({
+    activeWindow = await chrome.windows.getLastFocused({
       windowTypes: ["normal"],
-    });
-    result = await restoreMissingTab(store, recordId, activeWindow, {
-      beforeCreateTab: automatedTabCreationFailureHook(),
     });
   } catch (error: unknown) {
     console.error(`Could not resolve an active window for ${recordId}`, error);
-    result = { restoredRecordIds: [], failedRecordIds: [recordId] };
   }
+  const result = await restoreMissingTab(store, recordId, activeWindow, {
+    beforeCreateTab: automatedTabCreationFailureHook(),
+  });
   await synchronizeRecoveryBadge(await store.read());
   return result;
 }

@@ -177,11 +177,26 @@ test("Restore Tab moves one Missing Tab into the active Window Grouping", async 
     await expect(popup.getByText("remaining-tab", { exact: true })).toHaveCount(0);
     await expect(popup.locator(".missing-window-grouping")).toHaveCount(0);
 
+    await expect
+      .poll(async () => {
+        const openTabs = await readOpenWebTabs(extension.serviceWorker);
+        return {
+          selectedWindowIds: openTabs
+            .filter((tab) => tab.url === selectedUrl)
+            .map((tab) => tab.windowId),
+          remainingWindowIds: openTabs
+            .filter((tab) => tab.url === remainingUrl)
+            .map((tab) => tab.windowId),
+        };
+      })
+      .toEqual({
+        selectedWindowIds: [activeWindow.windowId],
+        remainingWindowIds: [expect.any(Number)],
+      });
     const remainingOpenTab = (await readOpenWebTabs(extension.serviceWorker)).find(
       (tab) => tab.url === remainingUrl,
-    );
-    expect(remainingOpenTab?.windowId).toEqual(expect.any(Number));
-    expect(remainingOpenTab?.windowId).not.toBe(activeWindow.windowId);
+    )!;
+    expect(remainingOpenTab.windowId).not.toBe(activeWindow.windowId);
     expect(await readRecoverySet(extension.serviceWorker)).toMatchObject({
       windows: expect.arrayContaining([
         expect.objectContaining({
@@ -280,6 +295,49 @@ test("a Failed Recovery keeps Restore Tab available for the same durable record"
         (tab) => tab.url === selectedUrl,
       ),
     ).toHaveLength(1);
+  } finally {
+    await extension.close();
+  }
+});
+
+test("an unknown Restore Tab request is a no-op without a normal window", async () => {
+  const extension = await launchExtensionProfile();
+
+  try {
+    const popupPagePromise = extension.context.waitForEvent("page");
+    await extension.serviceWorker.evaluate(async () => {
+      await chrome.windows.create({
+        type: "popup",
+        url: chrome.runtime.getURL("popup.html"),
+      });
+    });
+    const popup = await popupPagePromise;
+    await popup.waitForLoadState();
+
+    const remainingNormalWindowCount = await extension.serviceWorker.evaluate(
+      async () => {
+        const normalWindows = await chrome.windows.getAll({
+          windowTypes: ["normal"],
+        });
+        await Promise.all(
+          normalWindows.map((browserWindow) =>
+            chrome.windows.remove(browserWindow.id!),
+          ),
+        );
+        return (await chrome.windows.getAll({ windowTypes: ["normal"] })).length;
+      },
+    );
+    const result = await popup.evaluate(async () =>
+      chrome.runtime.sendMessage({
+        type: "restoreTab",
+        recordId: "unknown-record",
+      }),
+    );
+
+    expect({ remainingNormalWindowCount, result }).toEqual({
+      remainingNormalWindowCount: 0,
+      result: { restoredRecordIds: [], failedRecordIds: [] },
+    });
   } finally {
     await extension.close();
   }
