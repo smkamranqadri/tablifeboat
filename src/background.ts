@@ -83,7 +83,9 @@ async function getCurrentRecoveryStatus() {
 
 async function restoreOneWindowGrouping(groupingId: string) {
   await installationCapture;
-  const result = await restoreWindowGrouping(store, groupingId);
+  const result = await restoreWindowGrouping(store, groupingId, {
+    beforeCreateTab: automatedTabCreationFailureHook(),
+  });
   await synchronizeRecoveryBadge(await store.read());
   return result;
 }

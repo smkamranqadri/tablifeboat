@@ -173,11 +173,12 @@ function renderSummary(summary: RecoverySummary, actions: PopupActions): HTMLEle
     announceStatus("Restoring all missing tabs");
     try {
       const result = await actions.restoreAll();
-      await refreshAndRestoreFocus(
-        actions,
-        failedNotice(result, { scope: "summary", message: "Could not restore all missing tabs" }),
-      );
-      announceStatus("Recovery finished");
+      const notice = failedNotice(result, {
+        scope: "summary",
+        message: "Could not restore all missing tabs",
+      });
+      await refreshAndRestoreFocus(actions, notice);
+      announceStatus(notice ? "Recovery needs attention" : "Recovery finished");
     } catch (error: unknown) {
       showFailure(section, "Could not restore all missing tabs");
     } finally {
@@ -188,7 +189,12 @@ function renderSummary(summary: RecoverySummary, actions: PopupActions): HTMLEle
   return section;
 }
 
-function renderTabMenu(tab: TrackedTabSummary, actions: PopupActions, row: HTMLElement): HTMLElement {
+function renderTabMenu(
+  tab: TrackedTabSummary,
+  groupingId: string,
+  actions: PopupActions,
+  row: HTMLElement,
+): HTMLElement {
   const wrapper = requiredElement("div", "tab-menu");
   const button = requiredElement("button", "button button-ghost tab-menu-trigger");
   const menu = requiredElement("div", "tab-menu-content");
@@ -218,7 +224,7 @@ function renderTabMenu(tab: TrackedTabSummary, actions: PopupActions, row: HTMLE
         showFailure(row, "Could not forget this tab");
         return;
       }
-      await actions.refresh();
+      await refreshAndRestoreFocus(actions, undefined, groupingId);
       announceStatus("Tab forgotten");
     } catch (error: unknown) {
       showFailure(row, "Could not forget this tab");
@@ -298,12 +304,13 @@ function renderWindowGrouping(
       announceStatus(`Restoring ${tab.title}`);
       try {
         const result = await actions.restoreTab(tab.recordId);
-        await refreshAndRestoreFocus(
-          actions,
-          failedNotice(result, { scope: "tab", recordId: tab.recordId, message: "Could not restore this tab" }),
-          grouping.groupingId,
-        );
-        announceStatus("Tab restored");
+        const notice = failedNotice(result, {
+          scope: "tab",
+          recordId: tab.recordId,
+          message: "Could not restore this tab",
+        });
+        await refreshAndRestoreFocus(actions, notice, grouping.groupingId);
+        announceStatus(notice ? "Recovery needs attention" : "Tab restored");
       } catch (error: unknown) {
         showFailure(row, "Could not restore this tab");
       } finally {
@@ -311,7 +318,7 @@ function renderWindowGrouping(
       }
     });
 
-    tabActions.append(restoreTabButton, renderTabMenu(tab, actions, row));
+    tabActions.append(restoreTabButton, renderTabMenu(tab, grouping.groupingId, actions, row));
     row.append(tabCopy, tabActions);
     section.append(row);
   }
@@ -327,15 +334,13 @@ function renderWindowGrouping(
     announceStatus("Restoring window");
     try {
       const result = await actions.restoreWindow(grouping.groupingId);
-      await refreshAndRestoreFocus(
-        actions,
-        failedNotice(result, {
-          scope: "grouping",
-          groupingId: grouping.groupingId,
-          message: "Could not restore this window",
-        }),
-      );
-      announceStatus("Window restored");
+      const notice = failedNotice(result, {
+        scope: "grouping",
+        groupingId: grouping.groupingId,
+        message: "Could not restore this window",
+      });
+      await refreshAndRestoreFocus(actions, notice);
+      announceStatus(notice ? "Recovery needs attention" : "Window restored");
     } catch (error: unknown) {
       showFailure(section, "Could not restore this window");
     } finally {
@@ -362,7 +367,7 @@ function renderWindowGrouping(
           showFailure(section, "Could not forget this window");
           return;
         }
-        await actions.refresh();
+        await refreshAndRestoreFocus(actions, undefined);
         announceStatus("Window forgotten");
       } catch (error: unknown) {
         showFailure(section, "Could not forget this window");
