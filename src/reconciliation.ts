@@ -4,6 +4,7 @@ import type {
   WindowGrouping,
 } from "./recovery-model.js";
 import type { RecoveryStore } from "./recovery-store.js";
+import { hasStartupMissingTabs } from "./recovery-status.js";
 import { isWebTab } from "./tab-tracking.js";
 
 // Native restoration is asynchronous. Give Chromium a fixed opportunity to
@@ -13,8 +14,10 @@ const STARTUP_STATE_KEY = "startupReconciliationState";
 
 interface OpenWindowGrouping {
   browserWindowId: number;
-  tabs: Array<chrome.tabs.Tab & { id: number; url: string }>;
+  tabs: OpenWebTab[];
 }
+
+type OpenWebTab = chrome.tabs.Tab & { id: number; url: string };
 
 interface StartupReconciliationState {
   armed: boolean;
@@ -31,13 +34,22 @@ interface StartupOperationContext {
 export interface StartupReconciliation {
   reconcileAfterStartupSettlingForTest(): Promise<RecoverySet | undefined>;
   simulateStartupForTest(): Promise<boolean>;
+  scheduleAfterTabActivity(): void;
 }
 
 export async function reconcileRecoverySet(
   store: RecoveryStore,
   openTabs: chrome.tabs.Tab[],
+  recoverySetAtWorkerStart?: RecoverySet,
 ): Promise<RecoverySet> {
   return store.update((set) => {
+    if (recoverySetAtWorkerStart) {
+      removeNativeRestorationDuplicates(
+        set,
+        recoverySetAtWorkerStart,
+        openTabs,
+      );
+    }
     const previouslyLiveRecordIds = new Set(
       set.windows.flatMap((grouping) =>
         grouping.tabs.flatMap((tab) =>
@@ -85,9 +97,10 @@ export async function reconcileRecoverySet(
 
 export async function reconcileOpenTabsAfterStartup(
   store: RecoveryStore,
+  recoverySetAtWorkerStart?: RecoverySet,
 ): Promise<RecoverySet> {
   const openTabs = await chrome.tabs.query({ windowType: "normal" });
-  return reconcileRecoverySet(store, openTabs);
+  return reconcileRecoverySet(store, openTabs, recoverySetAtWorkerStart);
 }
 
 export function scheduleStartupReconciliation(
@@ -96,8 +109,10 @@ export function scheduleStartupReconciliation(
   automatedTestControlsEnabled = false,
 ): StartupReconciliation {
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let lateRestorationTimer: ReturnType<typeof setTimeout> | undefined;
   let result: Promise<RecoverySet> | undefined;
   let startupArming = Promise.resolve();
+  let lateRestorationPending = false;
 
   const readState = async (): Promise<StartupReconciliationState | undefined> => {
     const stored = (await chrome.storage.session.get(STARTUP_STATE_KEY)) as {
@@ -137,6 +152,7 @@ export function scheduleStartupReconciliation(
 
     result = operation({ claimStartupNotification })
       .then(async (recoverySet) => {
+        lateRestorationPending = hasStartupMissingTabs(recoverySet);
         const latestState = await readState();
         if (latestState?.armed) {
           await writeState({ ...latestState, completed: true });
@@ -175,6 +191,7 @@ export function scheduleStartupReconciliation(
   };
 
   const handleStartup = (): void => {
+    lateRestorationPending = false;
     startupArming = armStartup();
     void startupArming.catch((error: unknown) => {
       console.error("Failed to arm startup reconciliation", error);
@@ -183,10 +200,14 @@ export function scheduleStartupReconciliation(
 
   chrome.runtime.onStartup.addListener(handleStartup);
 
-  void readState()
-    .then((state) => {
+  const startupStateReady = readState()
+    .then(async (state) => {
       if (state?.armed && !state.completed) {
         armTimer(state.settleAfter);
+      } else if (state?.armed && state.completed) {
+        lateRestorationPending = hasStartupMissingTabs(
+          await readCurrentRecoverySet(),
+        );
       }
     })
     .catch((error: unknown) => {
@@ -215,6 +236,36 @@ export function scheduleStartupReconciliation(
       handleStartup();
       await startupArming;
       return true;
+    },
+    scheduleAfterTabActivity: () => {
+      void startupStateReady
+        .then(() => {
+          if (!lateRestorationPending) {
+            return;
+          }
+          if (lateRestorationTimer !== undefined) {
+            clearTimeout(lateRestorationTimer);
+          }
+          lateRestorationTimer = setTimeout(() => {
+            lateRestorationTimer = undefined;
+            void operation({ claimStartupNotification })
+              .then((recoverySet) => {
+                lateRestorationPending = hasStartupMissingTabs(recoverySet);
+              })
+              .catch((error: unknown) => {
+                console.error(
+                  "Failed to reconcile late native tab restoration",
+                  error,
+                );
+              });
+          }, 100);
+        })
+        .catch((error: unknown) => {
+          console.error(
+            "Failed to schedule reconciliation after startup tab activity",
+            error,
+          );
+        });
     },
   };
 }
@@ -245,6 +296,58 @@ function groupOpenWebTabs(openTabs: chrome.tabs.Tab[]): OpenWindowGrouping[] {
     browserWindowId,
     tabs: tabs.sort((left, right) => left.index - right.index),
   })).sort((left, right) => left.browserWindowId - right.browserWindowId);
+}
+
+function removeNativeRestorationDuplicates(
+  current: RecoverySet,
+  recoverySetAtWorkerStart: RecoverySet,
+  openTabs: chrome.tabs.Tab[],
+): void {
+  const currentRecordIds = new Set(
+    current.windows.flatMap((grouping) =>
+      grouping.tabs.map((tab) => tab.recordId),
+    ),
+  );
+  const originalRecordIds = new Set(
+    recoverySetAtWorkerStart.windows.flatMap((grouping) =>
+      grouping.tabs.map((tab) => tab.recordId),
+    ),
+  );
+  const originalWindowGroupings = recoverySetAtWorkerStart.windows.flatMap(
+    (grouping) => {
+      const tabs = grouping.tabs.filter((tab) =>
+        currentRecordIds.has(tab.recordId),
+      );
+      return tabs.length === 0 ? [] : [{ ...grouping, tabs }];
+    },
+  );
+  const openWindowGroupings = groupOpenWebTabs(openTabs);
+  const assignment = findGloballyOptimalAssignment(
+    originalWindowGroupings,
+    openWindowGroupings,
+  );
+  const restoredBrowserTabIds = new Set<number>();
+
+  for (const [expectedIndex, openIndex] of assignment) {
+    const expected = originalWindowGroupings[expectedIndex]!;
+    const open = openWindowGroupings[openIndex]!;
+    for (const [, restoredTab] of matchTrackedTabsToOpenTabs(
+      expected.tabs,
+      open.tabs,
+    )) {
+      restoredBrowserTabIds.add(restoredTab.id);
+    }
+  }
+
+  for (const grouping of current.windows) {
+    grouping.tabs = grouping.tabs.filter(
+      (tab) =>
+        originalRecordIds.has(tab.recordId) ||
+        tab.browserTabId === undefined ||
+        !restoredBrowserTabIds.has(tab.browserTabId),
+    );
+  }
+  current.windows = current.windows.filter((grouping) => grouping.tabs.length > 0);
 }
 
 function findGloballyOptimalAssignment(
@@ -352,7 +455,7 @@ function maximizeSquareAssignment(weights: number[][]): number[] {
 
 function countAddressOccurrenceOverlap(
   expectedTabs: TrackedTab[],
-  openTabs: Array<chrome.tabs.Tab & { id: number; url: string }>,
+  openTabs: OpenWebTab[],
 ): number {
   const openCounts = new Map<string, number>();
   for (const tab of openTabs) {
@@ -373,22 +476,8 @@ function associateWindowGrouping(
   expected: WindowGrouping,
   open: OpenWindowGrouping,
 ): void {
-  const tabsByAddress = new Map<
-    string,
-    Array<chrome.tabs.Tab & { id: number; url: string }>
-  >();
-  for (const tab of open.tabs) {
-    const occurrences = tabsByAddress.get(tab.url) ?? [];
-    occurrences.push(tab);
-    tabsByAddress.set(tab.url, occurrences);
-  }
-  let matchedAny = false;
-  for (const trackedTab of expected.tabs) {
-    const browserTab = tabsByAddress.get(trackedTab.url)?.shift();
-    if (!browserTab) {
-      continue;
-    }
-    matchedAny = true;
+  const matches = matchTrackedTabsToOpenTabs(expected.tabs, open.tabs);
+  for (const [trackedTab, browserTab] of matches) {
     trackedTab.browserTabId = browserTab.id;
     delete trackedTab.missingReason;
     trackedTab.title = browserTab.title ?? browserTab.url;
@@ -397,7 +486,27 @@ function associateWindowGrouping(
       pinned: browserTab.pinned,
     };
   }
-  if (matchedAny) {
+  if (matches.length > 0) {
     expected.browserWindowId = open.browserWindowId;
   }
+}
+
+function matchTrackedTabsToOpenTabs(
+  trackedTabs: TrackedTab[],
+  openTabs: OpenWebTab[],
+): Array<[TrackedTab, OpenWebTab]> {
+  const tabsByAddress = new Map<string, OpenWebTab[]>();
+  for (const tab of openTabs) {
+    const occurrences = tabsByAddress.get(tab.url) ?? [];
+    occurrences.push(tab);
+    tabsByAddress.set(tab.url, occurrences);
+  }
+  const matches: Array<[TrackedTab, OpenWebTab]> = [];
+  for (const trackedTab of trackedTabs) {
+    const browserTab = tabsByAddress.get(trackedTab.url)?.shift();
+    if (browserTab) {
+      matches.push([trackedTab, browserTab]);
+    }
+  }
+  return matches;
 }

@@ -123,7 +123,10 @@ startTabTracking(store);
 const startupReconciliation = scheduleStartupReconciliation(
   async ({ claimStartupNotification }) => {
     await installationCapture;
-    const set = await reconcileOpenTabsAfterStartup(store);
+    const set = await reconcileOpenTabsAfterStartup(
+      store,
+      await recoveryDataAtWorkerStart,
+    );
     await synchronizeRecoveryBadge(set);
     if (
       hasStartupMissingTabs(set) &&
@@ -136,6 +139,16 @@ const startupReconciliation = scheduleStartupReconciliation(
   () => store.read(),
   isAutomatedTestBuild,
 );
+
+chrome.tabs.onCreated.addListener(() => {
+  startupReconciliation.scheduleAfterTabActivity();
+});
+
+chrome.tabs.onUpdated.addListener((_tabId, changeInfo) => {
+  if (changeInfo.url !== undefined || changeInfo.status === "complete") {
+    startupReconciliation.scheduleAfterTabActivity();
+  }
+});
 
 chrome.storage.onChanged.addListener((changes, areaName) => {
   if (areaName !== "local" || !changes.recoverySet?.newValue) {

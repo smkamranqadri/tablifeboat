@@ -195,6 +195,51 @@ async function launchExistingProfileAfterRestart(
   }
 }
 
+async function launchRecoverySetAfterRestart(
+  recoverySet: RecoverySet,
+): Promise<RestartedProfile> {
+  const profileDirectory = await mkdtemp(
+    path.join(tmpdir(), "tab-recovery-persisted-restart-profile-"),
+  );
+  let firstLaunch: ExtensionProfile | undefined;
+  let restarted: ExtensionProfile | undefined;
+
+  try {
+    firstLaunch = await launchExtensionProfile({
+      automatedTest: true,
+      profileDirectory,
+    });
+    const popup = await firstLaunch.openPopup();
+    await popup.evaluate(async () =>
+      chrome.runtime.sendMessage({ type: "getRecoverySummary" }),
+    );
+    await popup.close();
+    await seedRecoverySet(firstLaunch.serviceWorker, recoverySet);
+    await firstLaunch.close();
+    firstLaunch = undefined;
+
+    restarted = await launchExtensionProfile({
+      automatedTest: true,
+      profileDirectory,
+      restoreLastSession: true,
+    });
+    await simulateStartupForTest(restarted);
+    return {
+      extension: restarted,
+      close: async () => {
+        await restarted?.close();
+        restarted = undefined;
+        await rm(profileDirectory, { recursive: true, force: true });
+      },
+    };
+  } catch (error) {
+    await firstLaunch?.close();
+    await restarted?.close();
+    await rm(profileDirectory, { recursive: true, force: true });
+    throw error;
+  }
+}
+
 async function createRecoverableWindow(
   serviceWorker: Worker,
   urls: string[],
@@ -342,6 +387,94 @@ test("allows startup controls only in the explicit automated-test build", async 
     expect(await reconcileAfterStartupSettlingForTest(extension)).toBeDefined();
   } finally {
     await extension.close();
+  }
+});
+
+test("native restoration during startup preserves the original Tracked Tab without duplication", async () => {
+  const url = `${origin}/restored-during-startup`;
+  const restarted = await launchRecoverySetAfterRestart({
+    version: 1,
+    windows: [
+      {
+        groupingId: "late-grouping",
+        browserWindowId: 700,
+        tabs: [recoveryTab("original-record", url, 0, 701)],
+      },
+    ],
+  });
+  const { extension } = restarted;
+
+  try {
+    await createRecoverableWindow(extension.serviceWorker, [url]);
+    await expect
+      .poll(async () => {
+        const recoverySet = await readRecoverySet(extension.serviceWorker);
+        return recoverySet?.windows.flatMap((grouping) => grouping.tabs).length;
+      })
+      .toBe(2);
+
+    const earlyReconciliation =
+      (await reconcileAfterStartupSettlingForTest(extension))!;
+    const tabs = earlyReconciliation.windows.flatMap((grouping) => grouping.tabs);
+    expect({
+      total: tabs.length,
+      open: tabs.filter((tab) => tab.browserTabId !== undefined).length,
+      missing: tabs.filter((tab) => tab.browserTabId === undefined).length,
+      recordIds: tabs.map((tab) => tab.recordId),
+    }).toEqual({
+      total: 1,
+      open: 1,
+      missing: 0,
+      recordIds: ["original-record"],
+    });
+  } finally {
+    await restarted.close();
+  }
+});
+
+test("native restoration finishing after startup reconciliation clears the Missing Tab", async () => {
+  const url = `${origin}/restored-after-reconciliation`;
+  const restarted = await launchRecoverySetAfterRestart({
+    version: 1,
+    windows: [
+      {
+        groupingId: "late-after-grouping",
+        browserWindowId: 710,
+        tabs: [recoveryTab("late-after-record", url, 0, 711)],
+      },
+    ],
+  });
+  const { extension } = restarted;
+
+  try {
+    const earlyReconciliation =
+      (await reconcileAfterStartupSettlingForTest(extension))!;
+    expect(earlyReconciliation.windows[0]!.tabs[0]).toMatchObject({
+      recordId: "late-after-record",
+      missingReason: "startup",
+    });
+
+    await createRecoverableWindow(extension.serviceWorker, [url]);
+
+    await expect
+      .poll(async () => {
+        const recoverySet = (await readRecoverySet(extension.serviceWorker))!;
+        const tabs = recoverySet.windows.flatMap((grouping) => grouping.tabs);
+        return {
+          total: tabs.length,
+          open: tabs.filter((tab) => tab.browserTabId !== undefined).length,
+          missing: tabs.filter((tab) => tab.browserTabId === undefined).length,
+          recordIds: tabs.map((tab) => tab.recordId),
+        };
+      })
+      .toEqual({
+        total: 1,
+        open: 1,
+        missing: 0,
+        recordIds: ["late-after-record"],
+      });
+  } finally {
+    await restarted.close();
   }
 });
 
