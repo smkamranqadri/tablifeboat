@@ -88,6 +88,25 @@ test("the Recovery Popup presents missing tabs by Window first", async () => {
     await expect(card.getByRole("button", { name: "Restore Window" })).toBeVisible();
     await expect(card.getByText("notion.so", { exact: true })).toBeVisible();
     await expect(card.getByRole("button", { name: "Restore Tab: Project notes" })).toBeVisible();
+
+    const dimensions = await popup.evaluate(() => ({
+      bodyWidth: document.body.getBoundingClientRect().width,
+      scrollWidth: document.documentElement.scrollWidth,
+      clientWidth: document.documentElement.clientWidth,
+    }));
+    expect(dimensions.bodyWidth).toBeLessThanOrEqual(384);
+    expect(dimensions.scrollWidth).toBe(dimensions.clientWidth);
+
+    await popup.emulateMedia({ colorScheme: "dark" });
+    const darkBackground = await popup.locator("body").evaluate(
+      (body) => getComputedStyle(body).backgroundColor,
+    );
+    await popup.emulateMedia({ colorScheme: "light" });
+    const lightBackground = await popup.locator("body").evaluate(
+      (body) => getComputedStyle(body).backgroundColor,
+    );
+    expect(darkBackground).not.toBe(lightBackground);
+
     const moreActions = popup.getByRole("button", {
       name: "More actions for Project notes",
     });
@@ -100,6 +119,34 @@ test("the Recovery Popup presents missing tabs by Window first", async () => {
     await popup.keyboard.press("Escape");
     await expect(moreActions).toBeFocused();
     await expect(moreActions).toHaveAttribute("aria-expanded", "false");
+
+    const focusOrder: Array<{ label: string | null; hidden: boolean }> = [];
+    for (let index = 0; index < 3; index += 1) {
+      await popup.keyboard.press("Shift+Tab");
+    }
+    for (let index = 0; index < 9; index += 1) {
+      if (index > 0) await popup.keyboard.press("Tab");
+      focusOrder.push(
+        await popup.evaluate(() => {
+          const active = document.activeElement as HTMLElement;
+          return {
+            label: active.getAttribute("aria-label") ?? active.textContent,
+            hidden: active.closest("[hidden]") !== null,
+          };
+        }),
+      );
+    }
+    expect(focusOrder).toEqual([
+      { label: "Restore All", hidden: false },
+      { label: "Project notes", hidden: false },
+      { label: "Restore Tab: Project notes", hidden: false },
+      { label: "More actions for Project notes", hidden: false },
+      { label: "Quarterly roadmap", hidden: false },
+      { label: "Restore Tab: Quarterly roadmap", hidden: false },
+      { label: "More actions for Quarterly roadmap", hidden: false },
+      { label: "Restore Window", hidden: false },
+      { label: "Forget Window", hidden: false },
+    ]);
   } finally {
     await extension.close();
   }
