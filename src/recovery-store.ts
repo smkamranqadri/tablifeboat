@@ -24,7 +24,7 @@ interface StoredWindowGrouping
   tabs: StoredTrackedTab[];
 }
 
-interface StoredRecoverySet extends Omit<RecoverySet, "windows"> {
+export interface StoredRecoverySet extends Omit<RecoverySet, "windows"> {
   windows: StoredWindowGrouping[];
 }
 
@@ -140,7 +140,7 @@ export class RecoveryStore {
   }
 }
 
-function migrateRecoverySet(storedSet: StoredRecoverySet | undefined): {
+export function migrateRecoverySet(storedSet: StoredRecoverySet | undefined): {
   set: RecoverySet;
   migrated: boolean;
 } {
