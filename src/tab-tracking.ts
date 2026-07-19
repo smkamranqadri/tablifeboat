@@ -5,6 +5,7 @@ import {
   type WindowGrouping,
 } from "./recovery-model.js";
 import type { RecoveryStore } from "./recovery-store.js";
+import { isWebTab } from "./web-tab.js";
 
 // Chromium may report the last tab's removal before reporting its window's removal.
 // Hold ambiguous removals briefly so the authoritative Window Closure event can win.
@@ -15,22 +16,6 @@ interface PendingTabRemoval {
 }
 
 type PendingWindowRemovals = Map<number, Map<number, PendingTabRemoval>>;
-
-export function isWebTab(tab: chrome.tabs.Tab): tab is chrome.tabs.Tab & {
-  id: number;
-  url: string;
-} {
-  if (tab.incognito || tab.id === undefined || tab.url === undefined) {
-    return false;
-  }
-
-  try {
-    const protocol = new URL(tab.url).protocol;
-    return protocol === "http:" || protocol === "https:";
-  } catch {
-    return false;
-  }
-}
 
 export function startTabTracking(store: RecoveryStore): void {
   const pendingWindowRemovals: PendingWindowRemovals = new Map();

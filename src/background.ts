@@ -20,7 +20,8 @@ import {
   synchronizeRecoveryBadge,
   synchronizeRecoveryBadgeWithLogging,
 } from "./recovery-status.js";
-import { isWebTab, startTabTracking } from "./tab-tracking.js";
+import { startTabTracking } from "./tab-tracking.js";
+import { isWebTab } from "./web-tab.js";
 
 const store = new RecoveryStore();
 const recoveryDataAtWorkerStart = store.read();

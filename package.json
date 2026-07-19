@@ -4,15 +4,18 @@
   "private": true,
   "scripts": {
     "build": "tsc && cp src/manifest.json src/popup.html src/popup.css dist/",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && npm run typecheck:test",
+    "typecheck:test": "tsc -p tsconfig.test.json",
+    "test:unit": "vitest run",
     "test:browser": "npm run build && playwright test",
     "test:durability": "npm run build && playwright test tests/browser/recovery-durability.spec.ts",
-    "test": "npm run test:browser"
+    "test": "npm run test:unit && npm run test:browser"
   },
   "devDependencies": {
     "@playwright/test": "1.61.1",
     "@types/chrome": "0.2.2",
     "@types/node": "26.1.1",
-    "typescript": "7.0.2"
+    "typescript": "7.0.2",
+    "vitest": "4.1.10"
   }
 }
