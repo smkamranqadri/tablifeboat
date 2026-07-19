@@ -54,8 +54,7 @@ export async function notifyMissingTabsAfterStartup(
   const noun = missingTabCount === 1 ? "Missing Tab is" : "Missing Tabs are";
   await chrome.notifications.create("tab-recovery-startup", {
     type: "basic",
-    iconUrl:
-      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+    iconUrl: "icons/icon-128.png",
     title: "Tab Recovery",
     message: `${missingTabCount} ${noun} available for Manual Recovery.`,
   });

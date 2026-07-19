@@ -4,6 +4,14 @@ Tab Recovery is a local Manifest V3 extension for Helium. It maintains one
 Browser Profile's latest Recovery Set, preserves Web Tabs lost through Window
 Closure, and lets the user start Manual Recovery from the Recovery Popup.
 
+## Privacy
+
+Tab Recovery operates entirely on-device: all Recovery Data stays local to your
+Browser Profile, with zero network requests, no analytics, no third parties, and
+no sale of data, ever. The extension holds the `tabs` permission to record tab
+titles and addresses but sends nothing to any server. Because this repository is
+public, you can verify this guarantee against the source code.
+
 ## Build
 
 Requirements:
@@ -21,28 +29,34 @@ npm run build
 The installable extension is generated in `dist/`. Re-run `npm run build` after
 changing source files.
 
-## Load in Helium
+## Install
 
-1. Open Helium's extension-management page from its menu or by visiting
+Tab Recovery is distributed as a built `.zip` on [GitHub Releases](https://github.com/smkamranqadri/tab-recovery/releases)
+and installs on Chromium-based browsers (Helium, Chrome, Edge, and others) via
+Load unpacked:
+
+1. Download the `.zip` from Releases and extract it.
+2. Open the browser's extension-management page from the menu or by visiting
    `chrome://extensions`.
-2. Enable **Developer mode**.
-3. Choose **Load unpacked**.
-4. Select this repository's `dist/` directory, not `src/` or the repository
-   root.
-5. Pin **Tab Recovery** to the toolbar if you want the Recovery Popup readily
+3. Enable **Developer mode**.
+4. Choose **Load unpacked**.
+5. Select the extracted `dist/` directory, not `src/` or the repository root.
+6. Pin **Tab Recovery** to the toolbar if you want the Recovery Popup readily
    available.
 
-After rebuilding an already loaded checkout, use **Reload** on the extension's
-card. Do not remove and re-add the extension as an update procedure: uninstall
-is outside the Recovery Data durability boundary.
+After rebuilding or reloading, use **Reload** on the extension's card. Do not
+remove and re-add the extension as an update procedure: uninstall is outside the
+Recovery Data durability boundary.
 
-Follow the complete [Helium smoke test](docs/helium-smoke-test.md) before relying
-on a completed build.
+For Helium users, follow the complete [Helium smoke test](docs/helium-smoke-test.md)
+before relying on a completed build.
 
 ## Verification
 
 ```sh
 npm run typecheck
+npm run test:unit
+npm run test:browser
 npm run test:durability
 npm test
 ```
