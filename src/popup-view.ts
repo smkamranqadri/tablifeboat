@@ -40,6 +40,38 @@ export interface PopupActions {
   refresh(notice?: RecoveryNotice): Promise<void>;
 }
 
+function firstRunExplainer(): HTMLElement | null {
+  return document.querySelector<HTMLElement>("#first-run-explainer");
+}
+
+export function initFirstRunExplainer(dismissed: boolean, onDismiss: () => void): void {
+  const explainer = firstRunExplainer();
+  if (!explainer) return;
+  if (dismissed) {
+    explainer.hidden = true;
+    return;
+  }
+
+  explainer.hidden = false;
+  const dismissButton = document.querySelector<HTMLButtonElement>(
+    "#dismiss-first-run-explainer",
+  );
+  dismissButton?.addEventListener("click", () => {
+    explainer.hidden = true;
+    onDismiss();
+    const heading = document.querySelector<HTMLElement>("#popup-title");
+    if (heading) {
+      heading.tabIndex = -1;
+      heading.focus();
+    }
+  });
+}
+
+export function hideFirstRunExplainer(): void {
+  const explainer = firstRunExplainer();
+  if (explainer) explainer.hidden = true;
+}
+
 let openMenuButton: HTMLButtonElement | undefined;
 
 function closeOpenMenu(returnFocus: boolean): void {

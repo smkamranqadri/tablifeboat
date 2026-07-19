@@ -14,6 +14,30 @@
           <p id="protected-count" class="protected-count">0 open protected tabs</p>
         </div>
       </header>
+      <section
+        id="first-run-explainer"
+        class="first-run-explainer"
+        aria-labelledby="first-run-explainer-title"
+        hidden
+      >
+        <div class="first-run-explainer-copy">
+          <h2 id="first-run-explainer-title">Welcome</h2>
+          <p>
+            Tab Recovery keeps a local record of the tabs in your closed windows
+            so you can bring them back later. Recovery only ever happens when
+            you choose Restore Tab, Restore Window, or Restore All — it never
+            restores tabs on its own.
+          </p>
+        </div>
+        <button
+          type="button"
+          id="dismiss-first-run-explainer"
+          class="button button-ghost first-run-explainer-dismiss"
+          aria-label="Dismiss welcome explainer"
+        >
+          Got it
+        </button>
+      </section>
       <p id="popup-status" class="sr-only" role="status" aria-live="polite"></p>
       <div id="popup-content" aria-live="polite"></div>
     </main>
