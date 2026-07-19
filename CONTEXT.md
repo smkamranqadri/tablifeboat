@@ -36,6 +36,10 @@ _Avoid_: Account, device, browser family
 The persistent record of a Browser Profile's Recovery Set. It is expected to survive browser restarts, crashes, browser updates, and extension updates, but not extension uninstall or Browser Profile deletion.
 _Avoid_: Cloud backup, permanent archive
 
+**Preference State**:
+Persisted user-interface state that is not part of the Recovery Set and carries none of the Recovery Data durability guarantees, such as whether the first-run explainer has been dismissed. It is stored under its own key; losing it is harmless and merely restores default interface behavior. It must never be folded into Recovery Data.
+_Avoid_: Settings, Recovery Data
+
 **Forget Window**:
 An explicit user action that permanently removes one preserved window and all of its tabs from the Recovery Set.
 _Avoid_: Close window, delete tabs
