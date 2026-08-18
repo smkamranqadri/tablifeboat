@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { makeTab } from "./test-support.js";
-import { isWebTab, webTabAddress } from "./web-tab.js";
+import { comparableAddress, isWebTab, webTabAddress } from "./web-tab.js";
 
 describe("isWebTab", () => {
   it("accepts http and https tabs with an id and url", () => {
@@ -80,5 +80,23 @@ describe("webTabAddress", () => {
       ),
     ).toBeUndefined();
     expect(webTabAddress(makeTab({ id: 1 }))).toBeUndefined();
+  });
+});
+
+describe("comparableAddress", () => {
+  it("drops the fragment", () => {
+    expect(comparableAddress("https://a.test/doc?tab=t.0#heading=h.x")).toBe(
+      "https://a.test/doc?tab=t.0",
+    );
+  });
+
+  it("keeps the query, which does identify a different resource", () => {
+    expect(comparableAddress("https://a.test/doc?tab=t.1")).not.toBe(
+      comparableAddress("https://a.test/doc?tab=t.0"),
+    );
+  });
+
+  it("returns an unparseable address unchanged", () => {
+    expect(comparableAddress("not a url")).toBe("not a url");
   });
 });

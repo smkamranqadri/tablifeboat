@@ -381,6 +381,23 @@ describe("reconcileWindows", () => {
     expect(set.windows[0]!.tabs[0]!.browserTabId).toBe(101);
   });
 
+  it("associates a tab whose fragment drifted since it was tracked", () => {
+    const set = recoverySet([
+      grouping("g0", [
+        tracked("r1", `${A}doc#heading=earlier`, { missingReason: "startup" }),
+      ]),
+    ]);
+
+    reconcileWindows(set, [
+      openTab(100, `${A}doc#heading=later`, { windowId: 5 }),
+    ]);
+
+    const tab = set.windows[0]!.tabs[0]!;
+    expect(tab.browserTabId).toBe(100);
+    expect(tab.missingReason).toBeUndefined();
+    expect(tab.url).toBe(`${A}doc#heading=later`);
+  });
+
   it("does not dedup restorations without a worker-start snapshot", () => {
     const set = recoverySet([
       grouping("g0", [tracked("r1", A), tracked("r2", A)]),

@@ -3,7 +3,7 @@ import type {
   TrackedTab,
   WindowGrouping,
 } from "./recovery-model.js";
-import { webTabAddress } from "./web-tab.js";
+import { comparableAddress, webTabAddress } from "./web-tab.js";
 
 interface OpenWindowGrouping {
   browserWindowId: number;
@@ -266,14 +266,16 @@ export function countAddressOccurrenceOverlap(
 ): number {
   const openCounts = new Map<string, number>();
   for (const tab of openTabs) {
-    openCounts.set(tab.url, (openCounts.get(tab.url) ?? 0) + 1);
+    const address = comparableAddress(tab.url);
+    openCounts.set(address, (openCounts.get(address) ?? 0) + 1);
   }
   let overlapCount = 0;
   for (const tab of expectedTabs) {
-    const remaining = openCounts.get(tab.url) ?? 0;
+    const address = comparableAddress(tab.url);
+    const remaining = openCounts.get(address) ?? 0;
     if (remaining > 0) {
       overlapCount += 1;
-      openCounts.set(tab.url, remaining - 1);
+      openCounts.set(address, remaining - 1);
     }
   }
   return overlapCount;
@@ -288,6 +290,7 @@ function associateWindowGrouping(
     trackedTab.browserTabId = browserTab.id;
     delete trackedTab.missingReason;
     trackedTab.title = browserTab.title ?? browserTab.url;
+    trackedTab.url = browserTab.url;
     trackedTab.placement = {
       index: browserTab.index,
       pinned: browserTab.pinned,
@@ -304,13 +307,16 @@ export function matchTrackedTabsToOpenTabs(
 ): Array<[TrackedTab, OpenWebTab]> {
   const tabsByAddress = new Map<string, OpenWebTab[]>();
   for (const tab of openTabs) {
-    const occurrences = tabsByAddress.get(tab.url) ?? [];
+    const address = comparableAddress(tab.url);
+    const occurrences = tabsByAddress.get(address) ?? [];
     occurrences.push(tab);
-    tabsByAddress.set(tab.url, occurrences);
+    tabsByAddress.set(address, occurrences);
   }
   const matches: Array<[TrackedTab, OpenWebTab]> = [];
   for (const trackedTab of trackedTabs) {
-    const browserTab = tabsByAddress.get(trackedTab.url)?.shift();
+    const browserTab = tabsByAddress
+      .get(comparableAddress(trackedTab.url))
+      ?.shift();
     if (browserTab) {
       matches.push([trackedTab, browserTab]);
     }

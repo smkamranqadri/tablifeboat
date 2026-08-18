@@ -5,7 +5,7 @@ import {
   type WindowGrouping,
 } from "./recovery-model.js";
 import type { RecoveryStore } from "./recovery-store.js";
-import { isWebTab } from "./web-tab.js";
+import { comparableAddress, isWebTab } from "./web-tab.js";
 
 // Chromium may report the last tab's removal before reporting its window's removal.
 // Hold ambiguous removals briefly so the authoritative Window Closure event can win.
@@ -52,6 +52,13 @@ export function startTabTracking(store: RecoveryStore): void {
     );
   });
 
+  chrome.tabs.onReplaced.addListener((addedTabId, removedTabId) => {
+    handleListenerOperation(
+      "Tab identity replacement",
+      adoptReplacedTabId(store, addedTabId, removedTabId),
+    );
+  });
+
   chrome.tabs.onRemoved.addListener((tabId, removeInfo) => {
     if (removeInfo.isWindowClosing) {
       handleWindowClosure(store, pendingWindowRemovals, removeInfo.windowId);
@@ -77,7 +84,12 @@ function updateTrackedTab(
   reindexWindow = false,
 ): Promise<RecoverySet> {
   return store.update(async (set) => {
-    const windowTabs = await getNormalWindowTabs(tab.windowId);
+    const lookup = await getNormalWindowTabs(tab.windowId);
+    if (lookup.kind === "gone") {
+      return;
+    }
+
+    const windowTabs = lookup.kind === "normal" ? lookup.tabs : undefined;
     const existing = set.windows
       .flatMap((window) => window.tabs)
       .find((trackedTab) => trackedTab.browserTabId === tab.id);
@@ -108,23 +120,95 @@ function updateTrackedTab(
     }
 
     const grouping = getOrCreateWindowGrouping(set, tab.windowId);
+    const adopted = findAdoptableTrackedTab(grouping, tab, windowTabs);
 
-    const trackedTab: TrackedTab = {
-      recordId: createDurableId(),
-      browserTabId: tab.id,
-      title: tab.title ?? tab.url,
-      url: tab.url,
-      placement: {
+    if (adopted) {
+      adopted.browserTabId = tab.id;
+      delete adopted.missingReason;
+      adopted.title = tab.title ?? tab.url;
+      adopted.url = tab.url;
+      adopted.placement = {
         index: tab.index,
         pinned: tab.pinned,
-      },
-    };
-    grouping.tabs.push(trackedTab);
+      };
+    } else {
+      const trackedTab: TrackedTab = {
+        recordId: createDurableId(),
+        browserTabId: tab.id,
+        title: tab.title ?? tab.url,
+        url: tab.url,
+        placement: {
+          index: tab.index,
+          pinned: tab.pinned,
+        },
+      };
+      grouping.tabs.push(trackedTab);
+    }
     grouping.tabs.sort((left, right) => left.placement.index - right.placement.index);
 
     if (reindexWindow) {
       reindexWindowGrouping(set, tab.windowId, windowTabs);
     }
+  });
+}
+
+// Chromium re-identifies a tab in place when it discards or prerender-swaps it,
+// and the browser tab id it announces afterwards is one this Window Grouping has
+// never seen. Without adoption every such swap mints a duplicate record and
+// strands the original as a Missing Tab that no open tab can ever reclaim.
+export function findAdoptableTrackedTab(
+  grouping: WindowGrouping,
+  tab: chrome.tabs.Tab & { id: number; url: string },
+  windowTabs: chrome.tabs.Tab[],
+): TrackedTab | undefined {
+  const liveTabIds = new Set(
+    windowTabs.flatMap((windowTab) =>
+      windowTab.id === undefined ? [] : [windowTab.id],
+    ),
+  );
+
+  const address = comparableAddress(tab.url);
+  return grouping.tabs.find(
+    (candidate) =>
+      comparableAddress(candidate.url) === address &&
+      candidate.missingReason !== "window-closure" &&
+      (candidate.browserTabId === undefined ||
+        !liveTabIds.has(candidate.browserTabId)),
+  );
+}
+
+function adoptReplacedTabId(
+  store: RecoveryStore,
+  addedTabId: number,
+  removedTabId: number,
+): Promise<RecoverySet> {
+  return store.update(async (set) => {
+    const trackedTab = set.windows
+      .flatMap((grouping) => grouping.tabs)
+      .find((candidate) => candidate.browserTabId === removedTabId);
+    if (!trackedTab) {
+      return;
+    }
+
+    let browserTab: chrome.tabs.Tab | undefined;
+    try {
+      browserTab = await chrome.tabs.get(addedTabId);
+    } catch {
+      browserTab = undefined;
+    }
+    if (browserTab === undefined || !isWebTab(browserTab)) {
+      removeTrackedTab(set, removedTabId);
+      return;
+    }
+
+    trackedTab.browserTabId = addedTabId;
+    delete trackedTab.missingReason;
+    trackedTab.title = browserTab.title ?? browserTab.url;
+    trackedTab.url = browserTab.url;
+    trackedTab.placement = {
+      index: browserTab.index,
+      pinned: browserTab.pinned,
+    };
   });
 }
 
@@ -140,6 +224,11 @@ function scheduleIndividualTabClosure(
     clearTimeout(existing.timer);
   }
 
+  // A reconciliation landing inside the settling delay strips the association
+  // this removal steers by, so the durable record id is resolved while the
+  // Tracked Tab still points at the tab the browser just closed.
+  const closedRecordId = readClosedRecordId(store, browserTabId);
+
   const timer = setTimeout(() => {
     pendingTabs.delete(browserTabId);
     if (pendingTabs.size === 0) {
@@ -148,12 +237,49 @@ function scheduleIndividualTabClosure(
 
     handleListenerOperation(
       "Individual Tab Closure",
-      removeIndividuallyClosedTab(store, browserTabId, windowId),
+      removeIndividuallyClosedTab(store, closedRecordId, browserTabId, windowId),
     );
   }, WINDOW_CLOSURE_SETTLING_MS);
 
   pendingTabs.set(browserTabId, { timer });
   pendingWindowRemovals.set(windowId, pendingTabs);
+}
+
+function readClosedRecordId(
+  store: RecoveryStore,
+  browserTabId: number,
+): Promise<string | undefined> {
+  return store
+    .read()
+    .then(
+      (set) =>
+        set.windows
+          .flatMap((grouping) => grouping.tabs)
+          .find((tab) => tab.browserTabId === browserTabId)?.recordId,
+    )
+    .catch(() => undefined);
+}
+
+// The captured record id stands in for the closed tab only while it stands for
+// no other one: a reconciliation inside the settling delay can rebind it to a
+// live tab, and removing it then would strand that tab untracked.
+function recordIdStillClosed(
+  set: RecoverySet,
+  recordId: string | undefined,
+  browserTabId: number,
+): string | undefined {
+  const reboundToLiveTab = set.windows
+    .flatMap((grouping) => grouping.tabs)
+    .some(
+      (tab) =>
+        tab.recordId === recordId &&
+        tab.browserTabId !== undefined &&
+        tab.browserTabId !== browserTabId,
+    );
+  if (reboundToLiveTab) {
+    return undefined;
+  }
+  return recordId;
 }
 
 function handleWindowClosure(
@@ -177,15 +303,21 @@ function handleWindowClosure(
 
 function removeIndividuallyClosedTab(
   store: RecoveryStore,
+  closedRecordId: Promise<string | undefined>,
   browserTabId: number,
   windowId: number,
 ): Promise<RecoverySet> {
   return store.update(async (set) => {
-    removeTrackedTab(set, browserTabId);
+    const resolvedRecordId = await closedRecordId.catch(() => undefined);
+    removeTrackedTab(
+      set,
+      browserTabId,
+      recordIdStillClosed(set, resolvedRecordId, browserTabId),
+    );
     try {
-      const windowTabs = await getNormalWindowTabs(windowId);
-      if (windowTabs) {
-        reindexWindowGrouping(set, windowId, windowTabs);
+      const lookup = await getNormalWindowTabs(windowId);
+      if (lookup.kind === "normal") {
+        reindexWindowGrouping(set, windowId, lookup.tabs);
       }
     } catch (error: unknown) {
       console.error(
@@ -218,11 +350,26 @@ function preserveWindowGrouping(set: RecoverySet, browserWindowId: number): void
   }
 }
 
-async function getNormalWindowTabs(windowId: number): Promise<chrome.tabs.Tab[] | undefined> {
-  const browserWindow = await chrome.windows.get(windowId);
-  return browserWindow.type === "normal"
-    ? chrome.tabs.query({ windowId })
-    : undefined;
+// A window that has already gone is not the same as a window this extension
+// never tracks: Window Closure owns the first case and must be left to preserve
+// the Window Grouping that tab events arriving too late would otherwise delete.
+type WindowTabsLookup =
+  | { kind: "normal"; tabs: chrome.tabs.Tab[] }
+  | { kind: "other-type" }
+  | { kind: "gone" };
+
+async function getNormalWindowTabs(windowId: number): Promise<WindowTabsLookup> {
+  let browserWindow: chrome.windows.Window;
+  try {
+    browserWindow = await chrome.windows.get(windowId);
+  } catch {
+    return { kind: "gone" };
+  }
+
+  if (browserWindow.type !== "normal") {
+    return { kind: "other-type" };
+  }
+  return { kind: "normal", tabs: await chrome.tabs.query({ windowId }) };
 }
 
 function handleListenerOperation(context: string, operation: Promise<unknown>): void {
@@ -265,9 +412,9 @@ function reindexTrackedWindow(
   browserWindowId: number,
 ): Promise<RecoverySet> {
   return store.update(async (set) => {
-    const windowTabs = await getNormalWindowTabs(browserWindowId);
-    if (windowTabs) {
-      reindexWindowGrouping(set, browserWindowId, windowTabs);
+    const lookup = await getNormalWindowTabs(browserWindowId);
+    if (lookup.kind === "normal") {
+      reindexWindowGrouping(set, browserWindowId, lookup.tabs);
     }
   });
 }
@@ -284,7 +431,11 @@ function attachTrackedTab(
       return;
     }
 
-    const windowTabs = await getNormalWindowTabs(browserTab.windowId);
+    const lookup = await getNormalWindowTabs(browserTab.windowId);
+    if (lookup.kind === "gone") {
+      return;
+    }
+    const windowTabs = lookup.kind === "normal" ? lookup.tabs : undefined;
 
     const sourceGrouping = set.windows.find((grouping) =>
       grouping.tabs.some((tab) => tab.browserTabId === browserTabId),
@@ -342,9 +493,15 @@ function getOrCreateWindowGrouping(
   return grouping;
 }
 
-function removeTrackedTab(set: RecoverySet, browserTabId: number): void {
+function removeTrackedTab(
+  set: RecoverySet,
+  browserTabId: number,
+  recordId?: string,
+): void {
   for (const grouping of set.windows) {
-    grouping.tabs = grouping.tabs.filter((tab) => tab.browserTabId !== browserTabId);
+    grouping.tabs = grouping.tabs.filter(
+      (tab) => tab.browserTabId !== browserTabId && tab.recordId !== recordId,
+    );
   }
   set.windows = set.windows.filter((grouping) => grouping.tabs.length > 0);
 }

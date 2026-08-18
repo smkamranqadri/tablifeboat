@@ -6,6 +6,10 @@ import { reconcileWindows } from "./reconciliation-core.js";
 // Native restoration is asynchronous. Give Chromium a fixed opportunity to
 // finish rebuilding windows before deciding which Recovery Data is missing.
 export const STARTUP_SETTLING_MS = 5_000;
+// Late restoration belongs to browser startup alone. Left open-ended, a single
+// unrecoverable Missing Tab keeps the latch armed for the whole browser session
+// and every tab event pays for a full reconciliation pass.
+const LATE_RESTORATION_WINDOW_MS = 60_000;
 const SETTLING_POLL_MS = 50;
 const LATE_RESTORATION_DEBOUNCE_MS = 100;
 const STARTUP_STATE_KEY = "startupReconciliationState";
@@ -54,6 +58,10 @@ export function scheduleStartupReconciliation(
   let lateRestorationPending = false;
   let reconciliationInFlight = false;
   let tabActivityDuringReconciliation = false;
+
+  const withinLateRestorationWindow = (
+    state: StartupReconciliationState,
+  ): boolean => Date.now() < state.settleAfter + LATE_RESTORATION_WINDOW_MS;
 
   const readState = async (): Promise<StartupReconciliationState | undefined> => {
     const stored = (await chrome.storage.session.get(STARTUP_STATE_KEY)) as {
@@ -193,7 +201,11 @@ export function scheduleStartupReconciliation(
     .then(async (state) => {
       if (state?.armed && !state.completed) {
         armTimer(state.settleAfter);
-      } else if (state?.armed && state.completed) {
+      } else if (
+        state?.armed &&
+        state.completed &&
+        withinLateRestorationWindow(state)
+      ) {
         lateRestorationPending = hasStartupMissingTabs(
           await readCurrentRecoverySet(),
         );
@@ -263,12 +275,17 @@ export function scheduleStartupReconciliation(
         return;
       }
       void startupStateReady
-        .then(() => {
+        .then(async () => {
           if (reconciliationInFlight) {
             tabActivityDuringReconciliation = true;
             return;
           }
           if (!lateRestorationPending) {
+            return;
+          }
+          const state = await readState();
+          if (!state?.armed || !withinLateRestorationWindow(state)) {
+            lateRestorationPending = false;
             return;
           }
           scheduleLateReconciliation();

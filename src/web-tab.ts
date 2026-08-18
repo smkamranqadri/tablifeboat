@@ -31,3 +31,16 @@ export function isWebAddress(url: string): boolean {
     return false;
   }
 }
+
+// A fragment addresses a secondary part of a resource, never a different one,
+// and pages like Google Docs rewrite theirs as a person scrolls. Matching a
+// Tracked Tab to its own tab has to survive that drift.
+export function comparableAddress(url: string): string {
+  try {
+    const address = new URL(url);
+    address.hash = "";
+    return address.href;
+  } catch {
+    return url;
+  }
+}

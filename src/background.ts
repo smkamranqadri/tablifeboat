@@ -8,6 +8,7 @@ import {
   restoreMissingTab,
   restoreWindowGrouping,
 } from "./manual-recovery.js";
+import { removeStartupMissingBacklog } from "./recovery-data-repair.js";
 import { RecoveryStore } from "./recovery-store.js";
 import {
   reconcileOpenTabsAfterStartup,
@@ -28,6 +29,40 @@ const store = new RecoveryStore();
 // This read must stay the first operation on the store queue so it captures
 // the pre-startup Recovery Data before any tab-tracking event can mutate it.
 const recoveryDataAtWorkerStart = store.read();
+
+// Repairs run once per profile and never become standing policy: collapsing
+// Missing Tabs on every read would delete the very records a person reopens the
+// Recovery Popup to find.
+const REPAIR_VERSION_KEY = "recoveryDataRepairVersion";
+const REPAIR_VERSION = 3;
+const SUPERSEDED_REPAIR_KEY = "replacementOrphanRepairCompleted";
+
+async function repairRecoveryDataOnce(): Promise<void> {
+  const stored = (await chrome.storage.local.get(REPAIR_VERSION_KEY)) as {
+    recoveryDataRepairVersion?: number;
+  };
+  if (stored.recoveryDataRepairVersion === REPAIR_VERSION) {
+    return;
+  }
+
+  let removedCount = 0;
+  await store.update((set) => {
+    removedCount = removeStartupMissingBacklog(set);
+  });
+  await chrome.storage.local.set({ [REPAIR_VERSION_KEY]: REPAIR_VERSION });
+  await chrome.storage.local.remove(SUPERSEDED_REPAIR_KEY);
+  if (removedCount > 0) {
+    console.warn(
+      `Cleared ${removedCount} untrustworthy startup Missing Tab record(s)`,
+    );
+  }
+}
+
+const recoveryDataRepair = repairRecoveryDataOnce();
+
+void recoveryDataRepair.catch((error: unknown) => {
+  console.error("Failed to repair Recovery Data", error);
+});
 
 // The native-restoration dedup baseline must be the Recovery Data as it was
 // when the browser session began — a worker restarted mid-startup would
@@ -144,6 +179,7 @@ async function captureEligibleWebTabs(): Promise<RecoverySet> {
 }
 
 async function awaitStartupReadiness(): Promise<void> {
+  await recoveryDataRepair.catch(() => undefined);
   await installationCapture;
   // Arming happens inside this promise. Answering before it settles would report
   // the pre-startup Recovery Set, whose stale associations all look open.
@@ -222,6 +258,7 @@ startTabTracking(store);
 
 const startupReconciliation = scheduleStartupReconciliation(
   async ({ claimStartupNotification }) => {
+    await recoveryDataRepair.catch(() => undefined);
     await installationCapture;
     const set = await reconcileOpenTabsAfterStartup(
       store,
