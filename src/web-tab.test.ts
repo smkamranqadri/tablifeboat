@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { makeTab } from "./test-support.js";
-import { isWebTab } from "./web-tab.js";
+import { isWebTab, webTabAddress } from "./web-tab.js";
 
 describe("isWebTab", () => {
   it("accepts http and https tabs with an id and url", () => {
@@ -31,5 +31,54 @@ describe("isWebTab", () => {
 
   it("rejects unparseable urls", () => {
     expect(isWebTab(makeTab({ id: 1, url: "not a url" }))).toBe(false);
+  });
+});
+
+describe("webTabAddress", () => {
+  it("returns the committed url of a web tab", () => {
+    expect(webTabAddress(makeTab({ id: 1, url: "https://example.com/" }))).toBe(
+      "https://example.com/",
+    );
+  });
+
+  it("falls back to a pending web url while the tab is still loading", () => {
+    expect(
+      webTabAddress(makeTab({ id: 1, pendingUrl: "https://example.com/" })),
+    ).toBe("https://example.com/");
+    expect(
+      webTabAddress(
+        makeTab({ id: 1, url: "", pendingUrl: "https://example.com/" }),
+      ),
+    ).toBe("https://example.com/");
+  });
+
+  it("prefers the committed url over a pending navigation", () => {
+    expect(
+      webTabAddress(
+        makeTab({
+          id: 1,
+          url: "https://committed.test/",
+          pendingUrl: "https://pending.test/",
+        }),
+      ),
+    ).toBe("https://committed.test/");
+  });
+
+  it("returns undefined for incognito tabs and tabs without an id", () => {
+    expect(
+      webTabAddress(
+        makeTab({ id: 1, url: "https://example.com/", incognito: true }),
+      ),
+    ).toBeUndefined();
+    expect(webTabAddress(makeTab({ url: "https://example.com/" }))).toBeUndefined();
+  });
+
+  it("returns undefined when neither url nor pending url is a web address", () => {
+    expect(
+      webTabAddress(
+        makeTab({ id: 1, url: "chrome://extensions/", pendingUrl: "about:blank" }),
+      ),
+    ).toBeUndefined();
+    expect(webTabAddress(makeTab({ id: 1 }))).toBeUndefined();
   });
 });

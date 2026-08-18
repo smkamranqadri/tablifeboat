@@ -284,6 +284,103 @@ describe("reconcileWindows", () => {
     expect(set.windows[0]!.tabs[0]!.missingReason).toBe("window-closure");
   });
 
+  it("associates a still-loading tab through its pending url", () => {
+    const set = recoverySet([
+      grouping("g0", [tracked("r1", A, { missingReason: "startup" })]),
+    ]);
+
+    reconcileWindows(set, [
+      makeTab({ id: 100, windowId: 5, url: "", pendingUrl: A }),
+    ]);
+
+    const tab = set.windows[0]!.tabs[0]!;
+    expect(tab.browserTabId).toBe(100);
+    expect(tab.missingReason).toBeUndefined();
+    expect(set.windows[0]!.browserWindowId).toBe(5);
+  });
+
+  it("dedups a duplicate record of a still-loading restored tab", () => {
+    const original = recoverySet([grouping("g0", [tracked("r1", A)])]);
+    const set = recoverySet([
+      grouping("g0", [tracked("r1", A, { missingReason: "startup" })]),
+      grouping("g1", [tracked("r-dup", A, { browserTabId: 100 })], {
+        browserWindowId: 5,
+      }),
+    ]);
+
+    reconcileWindows(
+      set,
+      [makeTab({ id: 100, windowId: 5, url: "", pendingUrl: A })],
+      original,
+    );
+
+    expect(set.windows).toHaveLength(1);
+    const tab = set.windows[0]!.tabs[0]!;
+    expect(tab.recordId).toBe("r1");
+    expect(tab.browserTabId).toBe(100);
+    expect(tab.missingReason).toBeUndefined();
+  });
+
+  it("keeps a second same-address Tracked Tab opened ahead of a live baseline record", () => {
+    const browserStart = recoverySet([
+      grouping("g0", [tracked("original", A, { browserTabId: 100 })], {
+        browserWindowId: 5,
+      }),
+    ]);
+    const set = recoverySet([
+      grouping(
+        "g0",
+        [
+          tracked("original", A, { browserTabId: 100 }),
+          tracked("opened-later", A, { browserTabId: 102 }),
+        ],
+        { browserWindowId: 5 },
+      ),
+    ]);
+
+    reconcileWindows(
+      set,
+      [
+        openTab(102, A, { windowId: 5, index: 0 }),
+        openTab(100, A, { windowId: 5, index: 1 }),
+      ],
+      browserStart,
+    );
+
+    expect(set.windows[0]!.tabs.map((tab) => tab.recordId)).toEqual([
+      "original",
+      "opened-later",
+    ]);
+    expect(
+      set.windows[0]!.tabs.every((tab) => tab.browserTabId !== undefined),
+    ).toBe(true);
+  });
+
+  it("still drops a duplicate while the baseline record awaits restoration", () => {
+    const browserStart = recoverySet([
+      grouping("g0", [tracked("original", A, { browserTabId: 900 })], {
+        browserWindowId: 90,
+      }),
+    ]);
+    const set = recoverySet([
+      grouping("g0", [tracked("original", A, { browserTabId: 900 })], {
+        browserWindowId: 90,
+      }),
+      grouping("g1", [tracked("restored-duplicate", A, { browserTabId: 101 })], {
+        browserWindowId: 5,
+      }),
+    ]);
+
+    reconcileWindows(set, [openTab(101, A, { windowId: 5 })], browserStart);
+
+    expect(
+      set.windows.flatMap((candidate) =>
+        candidate.tabs.map((tab) => tab.recordId),
+      ),
+    ).toEqual(["original"]);
+    expect(set.windows[0]!.tabs[0]!.browserTabId).toBe(101);
+  });
+
   it("does not dedup restorations without a worker-start snapshot", () => {
     const set = recoverySet([
       grouping("g0", [tracked("r1", A), tracked("r2", A)]),

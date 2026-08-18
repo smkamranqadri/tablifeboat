@@ -1,7 +1,11 @@
+import { execFile } from "node:child_process";
 import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { promisify } from "node:util";
 import { chromium, type BrowserContext, type Page, type Worker } from "@playwright/test";
+
+const run = promisify(execFile);
 
 export interface ExtensionProfile {
   context: BrowserContext;
@@ -9,12 +13,40 @@ export interface ExtensionProfile {
   extensionId: string;
   openPopup: () => Promise<Page>;
   close: () => Promise<void>;
+  crash: () => Promise<void>;
 }
 
 interface ExtensionProfileOptions {
   automatedTest?: boolean;
   profileDirectory?: string;
   restoreLastSession?: boolean;
+}
+
+async function chromiumProcessIds(profileDirectory: string): Promise<number[]> {
+  // pgrep -f takes an extended regex, and a temp path can hold metacharacters.
+  const pattern = `user-data-dir=${profileDirectory}`.replace(
+    /[.*+?^${}()|[\]\\]/g,
+    "\\$&",
+  );
+  try {
+    const { stdout } = await run("pgrep", ["-f", "--", pattern]);
+    return stdout
+      .split("\n")
+      .flatMap((line) => (line.trim() === "" ? [] : [Number(line.trim())]))
+      .filter((processId) => Number.isInteger(processId));
+  } catch {
+    return [];
+  }
+}
+
+async function waitForProcessesToExit(profileDirectory: string): Promise<void> {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    if ((await chromiumProcessIds(profileDirectory)).length === 0) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  throw new Error(`Chromium did not exit for ${profileDirectory}`);
 }
 
 export async function launchExtensionProfile(
@@ -55,7 +87,9 @@ export async function launchExtensionProfile(
       args: [
         `--disable-extensions-except=${extensionDirectory}`,
         `--load-extension=${extensionDirectory}`,
-        ...(options.restoreLastSession ? ["--restore-last-session"] : []),
+        ...(options.restoreLastSession
+          ? ["--restore-last-session", "--hide-crash-restore-bubble"]
+          : []),
       ],
     });
 
@@ -78,6 +112,24 @@ export async function launchExtensionProfile(
         if (ownsProfileDirectory) {
           await rm(profileDirectory, { recursive: true, force: true });
         }
+      },
+      crash: async () => {
+        // SIGKILL stands in for a crash or force quit: Chromium reports neither
+        // tabs.onRemoved nor windows.onRemoved, so the persisted Recovery Data
+        // keeps the dead session's live associations.
+        const processIds = await chromiumProcessIds(profileDirectory);
+        if (processIds.length === 0) {
+          throw new Error(`No Chromium process is using ${profileDirectory}`);
+        }
+        for (const processId of processIds) {
+          try {
+            process.kill(processId, "SIGKILL");
+          } catch {
+            continue;
+          }
+        }
+        context = undefined;
+        await waitForProcessesToExit(profileDirectory);
       },
     };
   } catch (error) {

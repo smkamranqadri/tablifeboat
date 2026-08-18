@@ -286,15 +286,23 @@ async function waitForOpenWebTabsToSettle(
     .toEqual([...expectedUrls].sort());
 }
 
+// A tab-tracking update for a window this test just opened can still be queued
+// when the seed lands and would overwrite it, so keep seeding until the seeded
+// Recovery Data survives on its own.
 async function seedRecoverySet(
   serviceWorker: Worker,
   recoverySet: RecoverySet,
 ): Promise<void> {
-  await serviceWorker.evaluate(
-    async (set) => chrome.storage.local.set({ recoverySet: set }),
-    recoverySet,
-  );
-  await expect.poll(() => readRecoverySet(serviceWorker)).toEqual(recoverySet);
+  await expect
+    .poll(async () => {
+      await serviceWorker.evaluate(
+        async (set) => chrome.storage.local.set({ recoverySet: set }),
+        recoverySet,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      return readRecoverySet(serviceWorker);
+    })
+    .toEqual(recoverySet);
 }
 
 async function reconcileAfterStartupSettlingForTest(
@@ -406,27 +414,25 @@ test("native restoration during startup preserves the original Tracked Tab witho
 
   try {
     await createRecoverableWindow(extension.serviceWorker, [url]);
+    await reconcileAfterStartupSettlingForTest(extension);
+
     await expect
       .poll(async () => {
         const recoverySet = await readRecoverySet(extension.serviceWorker);
-        return recoverySet?.windows.flatMap((grouping) => grouping.tabs).length;
+        const tabs = recoverySet?.windows.flatMap((grouping) => grouping.tabs) ?? [];
+        return {
+          total: tabs.length,
+          open: tabs.filter((tab) => tab.browserTabId !== undefined).length,
+          missing: tabs.filter((tab) => tab.browserTabId === undefined).length,
+          recordIds: tabs.map((tab) => tab.recordId),
+        };
       })
-      .toBe(2);
-
-    const earlyReconciliation =
-      (await reconcileAfterStartupSettlingForTest(extension))!;
-    const tabs = earlyReconciliation.windows.flatMap((grouping) => grouping.tabs);
-    expect({
-      total: tabs.length,
-      open: tabs.filter((tab) => tab.browserTabId !== undefined).length,
-      missing: tabs.filter((tab) => tab.browserTabId === undefined).length,
-      recordIds: tabs.map((tab) => tab.recordId),
-    }).toEqual({
-      total: 1,
-      open: 1,
-      missing: 0,
-      recordIds: ["original-record"],
-    });
+      .toEqual({
+        total: 1,
+        open: 1,
+        missing: 0,
+        recordIds: ["original-record"],
+      });
   } finally {
     await restarted.close();
   }
@@ -827,5 +833,74 @@ test("keeps ordinary Window Closure during startup settling non-notifying", asyn
     });
   } finally {
     await restarted.close();
+  }
+});
+
+test("arms startup reconciliation when Chromium omits the startup event", async () => {
+  const profileDirectory = await mkdtemp(
+    path.join(tmpdir(), "tab-recovery-omitted-startup-profile-"),
+  );
+  let firstLaunch: ExtensionProfile | undefined;
+  let restarted: ExtensionProfile | undefined;
+  const url = `${origin}/armed-without-startup-event`;
+
+  try {
+    firstLaunch = await launchExtensionProfile({
+      automatedTest: true,
+      profileDirectory,
+    });
+    const popup = await firstLaunch.openPopup();
+    await popup.evaluate(async () =>
+      chrome.runtime.sendMessage({ type: "getRecoverySummary" }),
+    );
+    await popup.close();
+    await seedRecoverySet(firstLaunch.serviceWorker, {
+      version: 1,
+      windows: [
+        {
+          groupingId: "omitted-startup-grouping",
+          tabs: [
+            {
+              ...recoveryTab("omitted-startup-record", url, 0),
+              missingReason: "window-closure",
+            },
+          ],
+        },
+      ],
+    });
+    await firstLaunch.close();
+    firstLaunch = undefined;
+
+    // Deliberately no simulateStartupForTest: Playwright launches never fire
+    // chrome.runtime.onStartup, standing in for Chromium omitting the event.
+    restarted = await launchExtensionProfile({
+      automatedTest: true,
+      profileDirectory,
+    });
+    await createRecoverableWindow(restarted.serviceWorker, [url]);
+
+    const restartedExtension = restarted;
+    let reconciled: RecoverySet | undefined;
+    await expect
+      .poll(async () => {
+        reconciled = await sendReconciliationControlOnce(restartedExtension);
+        return reconciled;
+      })
+      .toBeDefined();
+
+    const tabs = reconciled!.windows.flatMap((grouping) => grouping.tabs);
+    expect({
+      total: tabs.length,
+      open: tabs.filter((tab) => tab.browserTabId !== undefined).length,
+      recordIds: tabs.map((tab) => tab.recordId),
+    }).toEqual({
+      total: 1,
+      open: 1,
+      recordIds: ["omitted-startup-record"],
+    });
+  } finally {
+    await firstLaunch?.close();
+    await restarted?.close();
+    await rm(profileDirectory, { recursive: true, force: true });
   }
 });

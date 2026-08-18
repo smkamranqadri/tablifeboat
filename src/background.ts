@@ -24,7 +24,74 @@ import { startTabTracking } from "./tab-tracking.js";
 import { isWebTab } from "./web-tab.js";
 
 const store = new RecoveryStore();
+
+// This read must stay the first operation on the store queue so it captures
+// the pre-startup Recovery Data before any tab-tracking event can mutate it.
 const recoveryDataAtWorkerStart = store.read();
+
+// The native-restoration dedup baseline must be the Recovery Data as it was
+// when the browser session began — a worker restarted mid-startup would
+// otherwise re-read a set already polluted with duplicate records and keep them.
+const STARTUP_BASELINE_KEY = "recoveryDataAtBrowserStart";
+
+// Every Recovery Popup request waits on this, so it resolves rather than
+// rejects; losing the baseline only costs native-restoration deduplication.
+async function resolveBrowserStartBaseline(): Promise<RecoverySet> {
+  try {
+    return await captureBrowserStartBaseline();
+  } catch (error: unknown) {
+    console.error("Failed to capture the browser-start Recovery Data", error);
+    return recoveryDataAtWorkerStart;
+  }
+}
+
+async function captureBrowserStartBaseline(): Promise<RecoverySet> {
+  const stored = (await chrome.storage.session.get(STARTUP_BASELINE_KEY)) as {
+    recoveryDataAtBrowserStart?: RecoverySet;
+  };
+  if (stored.recoveryDataAtBrowserStart) {
+    return stored.recoveryDataAtBrowserStart;
+  }
+  const set = await recoveryDataAtWorkerStart;
+  await chrome.storage.session.set({ [STARTUP_BASELINE_KEY]: set });
+
+  // Chromium does not reliably deliver runtime.onStartup (observed on macOS
+  // relaunches). If the first worker life of this browser session finds
+  // Recovery Data that cannot belong to the session, arm startup
+  // reconciliation without waiting for the event.
+  const predates = await recoveryDataPredatesThisSession(set).catch(
+    (error: unknown) => {
+      console.error("Failed to inspect Recovery Data for session start", error);
+      return false;
+    },
+  );
+  if (predates) {
+    startupReconciliation.armForBrowserSessionStart();
+  }
+  return set;
+}
+
+async function recoveryDataPredatesThisSession(
+  set: RecoverySet,
+): Promise<boolean> {
+  const tabs = set.windows.flatMap((grouping) => grouping.tabs);
+  if (tabs.length === 0) {
+    return false;
+  }
+  if (tabs.some((tab) => tab.browserTabId === undefined)) {
+    return true;
+  }
+  const openTabIds = new Set(
+    (await chrome.tabs.query({})).flatMap((tab) =>
+      tab.id === undefined ? [] : [tab.id],
+    ),
+  );
+  return tabs.some(
+    (tab) => tab.browserTabId !== undefined && !openTabIds.has(tab.browserTabId),
+  );
+}
+
+const recoveryDataAtBrowserStart = resolveBrowserStartBaseline();
 let installationCapture = Promise.resolve<RecoverySet | undefined>(undefined);
 const isAutomatedTestBuild =
   chrome.runtime.getManifest().version_name === "automated-test";
@@ -76,14 +143,22 @@ async function captureEligibleWebTabs(): Promise<RecoverySet> {
   });
 }
 
-async function getCurrentRecoveryStatus() {
+async function awaitStartupReadiness(): Promise<void> {
   await installationCapture;
+  // Arming happens inside this promise. Answering before it settles would report
+  // the pre-startup Recovery Set, whose stale associations all look open.
+  await recoveryDataAtBrowserStart;
+  await startupReconciliation.ensureReconciledBeforeManualRecovery();
+}
+
+async function getCurrentRecoveryStatus() {
+  await awaitStartupReadiness();
   const recoverySet = await store.read();
   return getRecoveryStatus(recoverySet);
 }
 
 async function restoreOneWindowGrouping(groupingId: string) {
-  await installationCapture;
+  await awaitStartupReadiness();
   const result = await restoreWindowGrouping(store, groupingId, {
     beforeCreateTab: automatedTabCreationFailureHook(),
   });
@@ -104,7 +179,7 @@ function automatedTabCreationFailureHook() {
 }
 
 async function restoreOneMissingTab(recordId: string) {
-  await installationCapture;
+  await awaitStartupReadiness();
   let activeWindow: chrome.windows.Window | undefined;
   try {
     activeWindow = await chrome.windows.getLastFocused({
@@ -121,7 +196,7 @@ async function restoreOneMissingTab(recordId: string) {
 }
 
 async function restoreAllWindowGroupings() {
-  await installationCapture;
+  await awaitStartupReadiness();
   const result = await restoreAllMissingTabs(store, {
     beforeCreateTab: automatedTabCreationFailureHook(),
   });
@@ -130,14 +205,14 @@ async function restoreAllWindowGroupings() {
 }
 
 async function forgetMissingTab(recordId: string) {
-  await installationCapture;
+  await awaitStartupReadiness();
   const result = await store.forgetTab(recordId);
   await synchronizeRecoveryBadge(await store.read());
   return result;
 }
 
 async function forgetMissingWindowGrouping(groupingId: string) {
-  await installationCapture;
+  await awaitStartupReadiness();
   const result = await store.forgetWindowGrouping(groupingId);
   await synchronizeRecoveryBadge(await store.read());
   return result;
@@ -150,7 +225,7 @@ const startupReconciliation = scheduleStartupReconciliation(
     await installationCapture;
     const set = await reconcileOpenTabsAfterStartup(
       store,
-      await recoveryDataAtWorkerStart,
+      await recoveryDataAtBrowserStart,
     );
     await synchronizeRecoveryBadge(set);
     if (

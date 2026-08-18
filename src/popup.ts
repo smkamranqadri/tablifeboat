@@ -37,8 +37,29 @@ async function afterRestore<T extends RestoreResult>(result: T): Promise<T> {
 
 async function refresh(notice?: RecoveryNotice): Promise<void> {
   if (!root) return;
-  const summary = await send<RecoverySummary>({ type: "getRecoverySummary" });
-  renderRecoveryPopup(root, summary, actions, notice);
+  try {
+    const summary = await send<RecoverySummary>({ type: "getRecoverySummary" });
+    renderRecoveryPopup(root, summary, actions, notice);
+  } catch (error: unknown) {
+    console.error("Could not read the Recovery Set", error);
+    root.replaceChildren(renderUnavailable());
+  }
+}
+
+function renderUnavailable(): HTMLElement {
+  const container = document.createElement("div");
+  container.className = "empty-state";
+  const message = document.createElement("p");
+  message.textContent = "Could not read your recovery data. Nothing was changed.";
+  const retry = document.createElement("button");
+  retry.type = "button";
+  retry.className = "button";
+  retry.textContent = "Try again";
+  retry.addEventListener("click", () => {
+    void refresh();
+  });
+  container.append(message, retry);
+  return container;
 }
 
 const actions: PopupActions = {

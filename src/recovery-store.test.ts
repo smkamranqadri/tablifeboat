@@ -147,6 +147,105 @@ describe("migrateRecoverySet", () => {
     expect(set.windows[0]!.tabs[0]!.placement).not.toHaveProperty("windowId");
   });
 
+  it("drops a stored tab whose address is outside the Web Tab boundary", () => {
+    const { set, migrated } = migrateRecoverySet(
+      stored([
+        {
+          groupingId: "g1",
+          tabs: [
+            {
+              recordId: "spoofed",
+              title: "Bank Login",
+              url: "data:text/html,<h1>sign in</h1>",
+              placement: { index: 0, pinned: false },
+            },
+            {
+              recordId: "scripted",
+              title: "Scripted",
+              url: "javascript:alert(1)",
+              placement: { index: 1, pinned: false },
+            },
+            {
+              recordId: "local",
+              title: "Local",
+              url: "file:///etc/passwd",
+              placement: { index: 2, pinned: false },
+            },
+            {
+              recordId: "kept",
+              title: "Kept",
+              url: "https://a.test/",
+              placement: { index: 3, pinned: false },
+            },
+          ],
+        },
+      ]),
+    );
+
+    expect(migrated).toBe(true);
+    expect(set.windows[0]!.tabs.map((tab) => tab.recordId)).toEqual(["kept"]);
+  });
+
+  it("keeps the rest of the Recovery Set when a stored record is malformed", () => {
+    const { set, migrated } = migrateRecoverySet({
+      version: 1,
+      windows: [
+        { groupingId: "broken" },
+        {
+          groupingId: "g1",
+          tabs: [
+            { recordId: "no-url", title: "A", placement: { index: 0, pinned: false } },
+            {
+              recordId: "no-placement",
+              title: "B",
+              url: "https://b.test/",
+            },
+            {
+              recordId: "kept",
+              title: "C",
+              url: "https://c.test/",
+              placement: { index: 1, pinned: true },
+            },
+          ],
+        },
+      ],
+    } as unknown as StoredRecoverySet);
+
+    expect(migrated).toBe(true);
+    expect(set.windows.map((grouping) => grouping.groupingId)).toEqual([
+      "broken",
+      "g1",
+    ]);
+    expect(set.windows[0]!.tabs).toEqual([]);
+    expect(set.windows[1]!.tabs).toEqual([
+      {
+        recordId: "no-placement",
+        browserTabId: undefined,
+        title: "B",
+        url: "https://b.test/",
+        placement: { index: 0, pinned: false },
+      },
+      {
+        recordId: "kept",
+        browserTabId: undefined,
+        title: "C",
+        url: "https://c.test/",
+        placement: { index: 1, pinned: true },
+      },
+    ]);
+  });
+
+  it("returns an empty set rather than throwing when the stored windows are not a list", () => {
+    const { set, migrated } = migrateRecoverySet({
+      version: 1,
+      windows: { "__proto__": "polluted" },
+    } as unknown as StoredRecoverySet);
+
+    expect(migrated).toBe(true);
+    expect(set.windows).toEqual([]);
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+  });
+
   it("preserves a missingReason when present and omits the key when absent", () => {
     const { set } = migrateRecoverySet(
       stored([

@@ -13,13 +13,21 @@ function missingTab(recordId: string, url: string, index: number): TrackedTab {
   };
 }
 
+// A tab-tracking update for a window this test just opened can still be queued
+// when the seed lands and would overwrite it, so keep seeding until the seeded
+// Recovery Data survives on its own.
 async function seedRecoverySet(worker: Worker, set: RecoverySet): Promise<void> {
   await expect.poll(() => readRecoverySet(worker)).not.toBeUndefined();
-  await worker.evaluate(
-    async (recoverySet) => chrome.storage.local.set({ recoverySet }),
-    set,
-  );
-  await expect.poll(() => readRecoverySet(worker)).toEqual(set);
+  await expect
+    .poll(async () => {
+      await worker.evaluate(
+        async (recoverySet) => chrome.storage.local.set({ recoverySet }),
+        set,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      return readRecoverySet(worker);
+    })
+    .toEqual(set);
 }
 
 async function setTabOpenState(

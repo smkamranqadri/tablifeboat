@@ -23,6 +23,12 @@ interface RestoredBrowserTab {
   browserWindowId: number;
 }
 
+class MissingTabUnavailableError extends Error {
+  constructor() {
+    super("Missing Tab is no longer available for Manual Recovery");
+  }
+}
+
 export async function restoreMissingTab(
   store: RecoveryStore,
   recordId: string,
@@ -47,9 +53,6 @@ export async function restoreMissingTab(
   }
 
   let createdBrowserTabId: number | undefined;
-  const missingTabUnavailable = new Error(
-    "Missing Tab is no longer available for Manual Recovery",
-  );
   try {
     await store.update(async (set) => {
       const sourceGrouping = set.windows.find((grouping) =>
@@ -59,7 +62,7 @@ export async function restoreMissingTab(
         (tab) => tab.recordId === recordId,
       );
       if (!sourceGrouping || !trackedTab || trackedTab.browserTabId !== undefined) {
-        throw missingTabUnavailable;
+        throw new MissingTabUnavailableError();
       }
 
       options.beforeCreateTab?.(recordId);
@@ -76,9 +79,11 @@ export async function restoreMissingTab(
       const sourceTabIndex = sourceGrouping.tabs.indexOf(trackedTab);
       sourceGrouping.tabs.splice(sourceTabIndex, 1);
       trackedTab.browserTabId = browserTab.id;
-      trackedTab.title = browserTab.pendingUrl
-        ? trackedTab.title
-        : (browserTab.title ?? trackedTab.title);
+      // A tab still carrying a pending address has no title of its own yet, and
+      // the placeholder Chromium reports would replace a real one.
+      if (browserTab.pendingUrl === undefined && browserTab.title !== undefined) {
+        trackedTab.title = browserTab.title;
+      }
       trackedTab.url = browserTab.pendingUrl ?? browserTab.url ?? trackedTab.url;
       trackedTab.placement = {
         index: browserTab.index,
@@ -106,7 +111,7 @@ export async function restoreMissingTab(
 
     return { restoredRecordIds: [recordId], failedRecordIds: [] };
   } catch (error: unknown) {
-    if (error === missingTabUnavailable) {
+    if (error instanceof MissingTabUnavailableError) {
       return { restoredRecordIds: [], failedRecordIds: [] };
     }
     if (createdBrowserTabId !== undefined) {
@@ -147,19 +152,46 @@ export async function restoreWindowGrouping(
     .sort((left, right) => left.placement.index - right.placement.index);
   const restoredRecordIds: string[] = [];
   const failedRecordIds: string[] = [];
-  let browserWindowId = grouping.browserWindowId;
+  let browserWindowId = await resolveOpenNormalWindowId(
+    grouping.browserWindowId,
+  );
 
   for (const missingTab of missingTabs) {
     try {
-      const restoredTab = browserWindowId === undefined
-        ? await restoreFirstTabInNewWindow(store, groupingId, missingTab)
-        : await restoreTabInExistingWindow(
+      let restoredTab: RestoredBrowserTab;
+      if (browserWindowId === undefined) {
+        restoredTab = await restoreFirstTabInNewWindow(
+          store,
+          groupingId,
+          missingTab,
+        );
+      } else {
+        try {
+          restoredTab = await restoreTabInExistingWindow(
             store,
             groupingId,
             browserWindowId,
             missingTab,
             options,
           );
+        } catch (error: unknown) {
+          if (error instanceof MissingTabUnavailableError) {
+            throw error;
+          }
+          const stillOpenWindowId = await resolveOpenNormalWindowId(
+            browserWindowId,
+          );
+          if (stillOpenWindowId !== undefined) {
+            throw error;
+          }
+          browserWindowId = undefined;
+          restoredTab = await restoreFirstTabInNewWindow(
+            store,
+            groupingId,
+            missingTab,
+          );
+        }
+      }
       browserWindowId = restoredTab.browserWindowId;
       restoredRecordIds.push(missingTab.recordId);
       try {
@@ -171,6 +203,9 @@ export async function restoreWindowGrouping(
         );
       }
     } catch (error: unknown) {
+      if (error instanceof MissingTabUnavailableError) {
+        continue;
+      }
       failedRecordIds.push(missingTab.recordId);
       console.error(`Failed to restore Missing Tab ${missingTab.recordId}`, error);
     }
@@ -203,6 +238,23 @@ export async function restoreAllMissingTabs(
   return result;
 }
 
+async function resolveOpenNormalWindowId(
+  browserWindowId: number | undefined,
+): Promise<number | undefined> {
+  if (browserWindowId === undefined) {
+    return undefined;
+  }
+  try {
+    const browserWindow = await chrome.windows.get(browserWindowId);
+    if (browserWindow.type === "normal" && !browserWindow.incognito) {
+      return browserWindowId;
+    }
+  } catch {
+    return undefined;
+  }
+  return undefined;
+}
+
 async function restoreFirstTabInNewWindow(
   store: RecoveryStore,
   groupingId: string,
@@ -217,7 +269,7 @@ async function restoreFirstTabInNewWindow(
       (candidate) => candidate.recordId === missingTab.recordId,
     );
     if (!grouping || !trackedTab || trackedTab.browserTabId !== undefined) {
-      throw new Error("Missing Tab is no longer available for Manual Recovery");
+      throw new MissingTabUnavailableError();
     }
 
     const browserWindow = await chrome.windows.create({
@@ -260,7 +312,7 @@ async function restoreTabInExistingWindow(
       (candidate) => candidate.recordId === missingTab.recordId,
     );
     if (!grouping || !trackedTab || trackedTab.browserTabId !== undefined) {
-      throw new Error("Missing Tab is no longer available for Manual Recovery");
+      throw new MissingTabUnavailableError();
     }
 
     options.beforeCreateTab?.(missingTab.recordId);

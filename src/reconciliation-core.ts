@@ -3,7 +3,7 @@ import type {
   TrackedTab,
   WindowGrouping,
 } from "./recovery-model.js";
-import { isWebTab } from "./web-tab.js";
+import { webTabAddress } from "./web-tab.js";
 
 interface OpenWindowGrouping {
   browserWindowId: number;
@@ -15,10 +15,10 @@ type OpenWebTab = chrome.tabs.Tab & { id: number; url: string };
 export function reconcileWindows(
   set: RecoverySet,
   openTabs: chrome.tabs.Tab[],
-  recoverySetAtWorkerStart?: RecoverySet,
+  recoverySetAtBrowserStart?: RecoverySet,
 ): void {
-  if (recoverySetAtWorkerStart) {
-    removeNativeRestorationDuplicates(set, recoverySetAtWorkerStart, openTabs);
+  if (recoverySetAtBrowserStart) {
+    removeNativeRestorationDuplicates(set, recoverySetAtBrowserStart, openTabs);
   }
   const previouslyLiveRecordIds = new Set(
     set.windows.flatMap((grouping) =>
@@ -79,11 +79,12 @@ function groupOpenWebTabs(openTabs: chrome.tabs.Tab[]): OpenWindowGrouping[] {
     Array<chrome.tabs.Tab & { id: number; url: string }>
   >();
   for (const tab of openTabs) {
-    if (!isWebTab(tab)) {
+    const address = webTabAddress(tab);
+    if (address === undefined || tab.id === undefined) {
       continue;
     }
     const tabs = windows.get(tab.windowId) ?? [];
-    tabs.push(tab);
+    tabs.push({ ...tab, id: tab.id, url: address });
     windows.set(tab.windowId, tabs);
   }
   return Array.from(windows, ([browserWindowId, tabs]) => ({
@@ -94,24 +95,36 @@ function groupOpenWebTabs(openTabs: chrome.tabs.Tab[]): OpenWindowGrouping[] {
 
 export function removeNativeRestorationDuplicates(
   current: RecoverySet,
-  recoverySetAtWorkerStart: RecoverySet,
+  recoverySetAtBrowserStart: RecoverySet,
   openTabs: chrome.tabs.Tab[],
 ): void {
-  const currentRecordIds = new Set(
+  const currentTabsByRecordId = new Map(
     current.windows.flatMap((grouping) =>
-      grouping.tabs.map((tab) => tab.recordId),
+      grouping.tabs.map((tab) => [tab.recordId, tab] as const),
     ),
   );
+  const openTabIds = new Set(
+    openTabs.flatMap((tab) => (tab.id === undefined ? [] : [tab.id])),
+  );
+  // Only a record the browser has not restored yet can have been duplicated by
+  // native restoration. Once its own tab is live again, a second tab at the same
+  // address is a distinct Tracked Tab and must survive every later pass.
+  const awaitsRestoration = (recordId: string): boolean => {
+    const tab = currentTabsByRecordId.get(recordId);
+    if (!tab) {
+      return false;
+    }
+    return tab.browserTabId === undefined || !openTabIds.has(tab.browserTabId);
+  };
+
   const originalRecordIds = new Set(
-    recoverySetAtWorkerStart.windows.flatMap((grouping) =>
+    recoverySetAtBrowserStart.windows.flatMap((grouping) =>
       grouping.tabs.map((tab) => tab.recordId),
     ),
   );
-  const originalWindowGroupings = recoverySetAtWorkerStart.windows.flatMap(
+  const originalWindowGroupings = recoverySetAtBrowserStart.windows.flatMap(
     (grouping) => {
-      const tabs = grouping.tabs.filter((tab) =>
-        currentRecordIds.has(tab.recordId),
-      );
+      const tabs = grouping.tabs.filter((tab) => awaitsRestoration(tab.recordId));
       return tabs.length === 0 ? [] : [{ ...grouping, tabs }];
     },
   );

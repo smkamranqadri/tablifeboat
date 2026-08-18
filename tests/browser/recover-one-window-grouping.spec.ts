@@ -299,3 +299,74 @@ test("Restore Window recreates an entirely missing Window Grouping as one separa
     await extension.close();
   }
 });
+
+test("Restore Window falls back to a new window when the saved window no longer exists", async () => {
+  const extension = await launchExtensionProfile();
+  const anchorUrl = `${origin}/stale-anchor`;
+  const firstMissingUrl = `${origin}/stale-first`;
+  const secondMissingUrl = `${origin}/stale-second`;
+
+  try {
+    const anchorWindow = await createRecoverableWindow(extension.serviceWorker, anchorUrl);
+    const staleWindowId = await extension.serviceWorker.evaluate(async (address) => {
+      const browserWindow = await chrome.windows.create({ type: "normal", url: address });
+      await chrome.windows.remove(browserWindow.id!);
+      return browserWindow.id!;
+    }, firstMissingUrl);
+
+    await seedRecoverySet(extension.serviceWorker, {
+      version: 1,
+      windows: [
+        {
+          groupingId: "anchor-grouping",
+          browserWindowId: anchorWindow.windowId,
+          tabs: [recoveryTab("stale-anchor", anchorUrl, 0, false, anchorWindow.tabId)],
+        },
+        {
+          groupingId: "stale-grouping",
+          browserWindowId: staleWindowId,
+          tabs: [
+            {
+              ...recoveryTab("stale-first", firstMissingUrl, 0, false),
+              missingReason: "window-closure",
+            },
+            {
+              ...recoveryTab("stale-second", secondMissingUrl, 1, false),
+              missingReason: "window-closure",
+            },
+          ],
+        },
+      ],
+    });
+
+    const popup = await extension.openPopup();
+    await expect(popup.getByText("stale-first", { exact: true })).toBeVisible();
+    await popup.getByRole("button", { name: "Restore Window" }).click();
+
+    await expect(popup.getByText("stale-first", { exact: true })).toHaveCount(0);
+    await expect(popup.getByText("stale-second", { exact: true })).toHaveCount(0);
+    await expect(popup.getByText("3 open protected tabs")).toBeVisible();
+
+    const layout = await readOpenWebWindowLayout(extension.serviceWorker);
+    const restoredWindow = layout.find((window) =>
+      window.tabs.some((tab) => tab.url === firstMissingUrl),
+    )!;
+    expect(restoredWindow).toBeDefined();
+    expect(restoredWindow.windowId).not.toBe(staleWindowId);
+    expect(restoredWindow.windowId).not.toBe(anchorWindow.windowId);
+    expect(restoredWindow.tabs.map((tab) => tab.url)).toEqual([
+      firstMissingUrl,
+      secondMissingUrl,
+    ]);
+
+    const recoverySet = (await readRecoverySet(extension.serviceWorker))!;
+    const staleGrouping = recoverySet.windows.find(
+      (grouping) => grouping.groupingId === "stale-grouping",
+    )!;
+    expect(staleGrouping.browserWindowId).toBe(restoredWindow.windowId);
+    expect(staleGrouping.tabs.every((tab) => tab.browserTabId !== undefined)).toBe(true);
+    expect(staleGrouping.tabs.every((tab) => tab.missingReason === undefined)).toBe(true);
+  } finally {
+    await extension.close();
+  }
+});
