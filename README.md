@@ -1,12 +1,12 @@
-# Tab Recovery
+# Tab Lifeboat
 
-Tab Recovery is a local Manifest V3 extension for Helium. It maintains one
+Tab Lifeboat is a local Manifest V3 extension for Helium. It maintains one
 Browser Profile's latest Recovery Set, preserves Web Tabs lost through Window
 Closure, and lets the user start Manual Recovery from the Recovery Popup.
 
 ## Privacy
 
-Tab Recovery operates entirely on-device: all Recovery Data stays local to your
+Tab Lifeboat operates entirely on-device: all Recovery Data stays local to your
 Browser Profile, with zero network requests, no analytics, no third parties, and
 no sale of data, ever. The extension holds the `tabs` permission to record tab
 titles and addresses but sends nothing to any server. Because this repository is
@@ -31,7 +31,7 @@ changing source files.
 
 ## Install
 
-Tab Recovery is distributed as a built `.zip` on [GitHub Releases](https://github.com/smkamranqadri/tab-recovery/releases)
+Tab Lifeboat is distributed as a built `.zip` on [GitHub Releases](https://github.com/smkamranqadri/tablifeboat/releases)
 and installs on Chromium-based browsers (Helium, Chrome, Edge, and others) via
 Load unpacked:
 
@@ -41,7 +41,7 @@ Load unpacked:
 3. Enable **Developer mode**.
 4. Choose **Load unpacked**.
 5. Select the extracted `dist/` directory, not `src/` or the repository root.
-6. Pin **Tab Recovery** to the toolbar if you want the Recovery Popup readily
+6. Pin **Tab Lifeboat** to the toolbar if you want the Recovery Popup readily
    available.
 
 After rebuilding or reloading, use **Reload** on the extension's card. Do not
@@ -71,3 +71,20 @@ Recovery Data is local to one Browser Profile. Completed persistent writes are
 expected to survive service-worker restarts, browser restarts, browser updates,
 and extension updates. There is no durability guarantee after extension
 uninstall, Browser Profile deletion, storage corruption, or device loss.
+
+## Acknowledgements
+
+Tab Lifeboat was designed and built with two open-source skill sets for AI coding agents:
+
+- **[Matt Pocock's skills](https://github.com/mattpocock/skills)** — `domain-modeling` shaped
+  the domain language in [`CONTEXT.md`](CONTEXT.md) and the decision records in
+  [`docs/adr/`](docs/adr/); `grill-with-docs` drove the design interviews; `to-spec` and
+  `to-tickets` turned them into specifications and issues; `triage` organised the work.
+- **[Superpowers](https://github.com/obra/superpowers)** by Jesse Vincent — the design specs,
+  implementation plans and subagent-driven development behind each feature.
+
+Thank you to both authors for sharing them under the MIT License.
+
+## License
+
+Tab Lifeboat is released under the [MIT License](LICENSE).
