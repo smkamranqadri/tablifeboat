@@ -130,7 +130,7 @@ async function closeBrowserUnexpectedly(
   options: UnexpectedCloseOptions,
 ): Promise<UnexpectedClose> {
   const profileDirectory = await mkdtemp(
-    path.join(tmpdir(), "tab-recovery-unexpected-close-"),
+    path.join(tmpdir(), "tablifeboat-unexpected-close-"),
   );
   let session: ExtensionProfile | undefined;
 

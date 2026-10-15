@@ -52,10 +52,10 @@ export async function notifyMissingTabsAfterStartup(
   }
 
   const noun = missingTabCount === 1 ? "Missing Tab is" : "Missing Tabs are";
-  await chrome.notifications.create("tab-recovery-startup", {
+  await chrome.notifications.create("tablifeboat-startup", {
     type: "basic",
     iconUrl: "icons/icon-128.png",
-    title: "Tab Recovery",
+    title: "Tab Lifeboat",
     message: `${missingTabCount} ${noun} available for Manual Recovery.`,
   });
 }

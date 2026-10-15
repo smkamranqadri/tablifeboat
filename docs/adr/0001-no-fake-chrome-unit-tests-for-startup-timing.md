@@ -4,7 +4,7 @@ status: accepted
 
 # No fake-chrome unit tests for the startup/settling timing logic (Tier 2 declined)
 
-The [pure-logic unit test spec](../superpowers/specs/2026-07-19-pure-logic-unit-tests-design.md)
+The pure-logic unit test design (2026-07-19)
 shipped Tier 1 (fast Vitest tests over the pure reconciliation math) and left
 "Tier 2" — a fake-timer + fake-`chrome` unit layer over the two timing state
 machines (`scheduleStartupReconciliation`'s startup-settle / session-state /

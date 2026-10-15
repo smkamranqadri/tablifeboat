@@ -33,7 +33,7 @@ test.afterAll(async () => {
 });
 
 test("protects existing eligible Web Tabs when the extension is installed", async () => {
-  const profileDirectory = await mkdtemp(path.join(tmpdir(), "tab-recovery-profile-"));
+  const profileDirectory = await mkdtemp(path.join(tmpdir(), "tablifeboat-profile-"));
   let setupContext: BrowserContext | undefined;
   let extension: ExtensionProfile | undefined;
 
@@ -57,7 +57,7 @@ test("protects existing eligible Web Tabs when the extension is installed", asyn
 
     const popup = await extension.openPopup();
 
-    await expect(popup.getByRole("heading", { name: "Tab Recovery" })).toBeVisible();
+    await expect(popup.getByRole("heading", { name: "Tab Lifeboat" })).toBeVisible();
     await expect(popup.getByText("3 open protected tabs")).toBeVisible();
 
     const hasIncognitoAccess = await extension.serviceWorker.evaluate(

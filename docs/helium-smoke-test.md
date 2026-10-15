@@ -18,15 +18,15 @@ execute on the completed build; it is not recorded as completed by automation.
 - [ ] Before installation, open one normal window with two HTTP(S) Web Tabs.
 - [ ] Open `chrome://extensions`, enable **Developer mode**, choose
       **Load unpacked**, and select `dist/`.
-- [ ] Confirm Helium shows **Tab Recovery** without an extension error.
+- [ ] Confirm Helium shows **Tab Lifeboat** without an extension error.
 
 Expected: protection begins on installation. Browser-internal pages such as a
 new-tab page do not enter the Recovery Set.
 
 ## Initial protection and Recovery Popup
 
-- [ ] Open the Tab Recovery toolbar action.
-- [ ] Confirm the Recovery Popup is headed **Tab Recovery**.
+- [ ] Open the Tab Lifeboat toolbar action.
+- [ ] Confirm the Recovery Popup is headed **Tab Lifeboat**.
 - [ ] Confirm it reports the expected number of open protected tabs.
 - [ ] Confirm it does not list currently open tabs as Missing Tabs.
 
@@ -69,7 +69,7 @@ increases and the badge clears when nothing remains missing.
 ## Developer reload check
 
 - [ ] With at least one preserved missing Window Grouping, run `npm run build`.
-- [ ] On `chrome://extensions`, choose **Reload** for Tab Recovery without
+- [ ] On `chrome://extensions`, choose **Reload** for Tab Lifeboat without
       removing it.
 - [ ] Reopen the Recovery Popup.
 

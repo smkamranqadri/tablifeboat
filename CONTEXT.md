@@ -1,6 +1,6 @@
-# Tab Recovery
+# Tab Lifeboat
 
-Tab Recovery preserves a trustworthy record of the user's browsing state so tabs can be reopened after that state is unexpectedly lost.
+Tab Lifeboat preserves a trustworthy record of the user's browsing state so tabs can be reopened after that state is unexpectedly lost.
 
 ## Language
 

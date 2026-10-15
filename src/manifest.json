@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
-  "name": "Tab Recovery",
-  "version": "1.1.0",
+  "name": "Tab Lifeboat",
+  "version": "1.2.0",
   "description": "Preserves eligible Web Tabs for Manual Recovery.",
   "permissions": ["notifications", "storage", "tabs"],
   "background": {
@@ -16,7 +16,7 @@
   },
   "action": {
     "default_popup": "popup.html",
-    "default_title": "Tab Recovery",
+    "default_title": "Tab Lifeboat",
     "default_icon": {
       "16": "icons/icon-16.png",
       "32": "icons/icon-32.png",

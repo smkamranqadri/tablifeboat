@@ -4,7 +4,7 @@ status: accepted
 
 # Unit-test the pure migration logic; decline the rest of Tier 3
 
-The [pure-logic unit test spec](../superpowers/specs/2026-07-19-pure-logic-unit-tests-design.md)
+The pure-logic unit test design (2026-07-19)
 parked four things under "Tier 3": `recovery-store`, `manual-recovery`,
 `background.ts`, and a popup view-model extraction. Evaluated one by one, only
 one is worth doing — and it isn't Tier-3-shaped.

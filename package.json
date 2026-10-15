@@ -1,10 +1,10 @@
 {
-  "name": "tab-recovery",
-  "version": "1.1.0",
+  "name": "tablifeboat",
+  "version": "1.2.0",
   "private": true,
   "scripts": {
     "build": "rm -rf dist && tsc && cp src/manifest.json src/popup.html src/popup.css dist/ && mkdir -p dist/icons && cp src/icons/icon-*.png dist/icons/",
-    "package": "npm run build && mkdir -p release && VERSION=$(node -p \"require('./package.json').version\") && rm -f \"release/tab-recovery-$VERSION.zip\" && (cd dist && zip -rq -X \"../release/tab-recovery-$VERSION.zip\" .)",
+    "package": "npm run build && mkdir -p release && VERSION=$(node -p \"require('./package.json').version\") && rm -f \"release/tablifeboat-$VERSION.zip\" && (cd dist && zip -rq -X \"../release/tablifeboat-$VERSION.zip\" .)",
     "typecheck": "tsc --noEmit && npm run typecheck:test",
     "typecheck:test": "tsc -p tsconfig.test.json",
     "test:unit": "vitest run",
@@ -18,5 +18,10 @@
     "@types/node": "26.1.1",
     "typescript": "7.0.2",
     "vitest": "4.1.10"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/smkamranqadri/tablifeboat.git"
   }
 }

@@ -79,7 +79,7 @@ function durableSnapshot(recoverySet: RecoverySet) {
 
 test("completed Recovery Data survives browser and MV3 service-worker restart, then reconciles from storage", async () => {
   const profileDirectory = await mkdtemp(
-    path.join(tmpdir(), "tab-recovery-durability-profile-"),
+    path.join(tmpdir(), "tablifeboat-durability-profile-"),
   );
   let firstLaunch: ExtensionProfile | undefined;
   let restarted: ExtensionProfile | undefined;

@@ -48,6 +48,6 @@ covers bundled Chromium, and Helium remains the manual smoke-test target.
   personal data in any tracked file (the only personal data is the commit author
   identity in git metadata), and the author chose to leave authorship as-is, so no
   history rewrite is performed; the repository is published as-is under the remote
-  `git@github.com:smkamranqadri/tab-recovery.git`.
+  `git@github.com:smkamranqadri/tablifeboat.git`.
 - First public release is tagged `1.0.0`; the "v1 / v2" labels are product
   milestones, not manifest numbers.

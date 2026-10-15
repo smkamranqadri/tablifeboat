@@ -159,7 +159,7 @@ async function launchExistingProfileAfterRestart(
   setup: (extension: ExtensionProfile) => Promise<void>,
 ): Promise<RestartedProfile> {
   const profileDirectory = await mkdtemp(
-    path.join(tmpdir(), "tab-recovery-restart-profile-"),
+    path.join(tmpdir(), "tablifeboat-restart-profile-"),
   );
   let firstLaunch: ExtensionProfile | undefined;
   let restarted: ExtensionProfile | undefined;
@@ -199,7 +199,7 @@ async function launchRecoverySetAfterRestart(
   recoverySet: RecoverySet,
 ): Promise<RestartedProfile> {
   const profileDirectory = await mkdtemp(
-    path.join(tmpdir(), "tab-recovery-persisted-restart-profile-"),
+    path.join(tmpdir(), "tablifeboat-persisted-restart-profile-"),
   );
   let firstLaunch: ExtensionProfile | undefined;
   let restarted: ExtensionProfile | undefined;
@@ -838,7 +838,7 @@ test("keeps ordinary Window Closure during startup settling non-notifying", asyn
 
 test("arms startup reconciliation when Chromium omits the startup event", async () => {
   const profileDirectory = await mkdtemp(
-    path.join(tmpdir(), "tab-recovery-omitted-startup-profile-"),
+    path.join(tmpdir(), "tablifeboat-omitted-startup-profile-"),
   );
   let firstLaunch: ExtensionProfile | undefined;
   let restarted: ExtensionProfile | undefined;

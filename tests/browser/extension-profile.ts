@@ -55,7 +55,7 @@ export async function launchExtensionProfile(
   const ownsProfileDirectory = options.profileDirectory === undefined;
   const profileDirectory =
     options.profileDirectory ??
-    (await mkdtemp(path.join(tmpdir(), "tab-recovery-profile-")));
+    (await mkdtemp(path.join(tmpdir(), "tablifeboat-profile-")));
   let extensionDirectory = path.resolve("dist");
   let context: BrowserContext | undefined;
 
@@ -63,7 +63,7 @@ export async function launchExtensionProfile(
     if (options.automatedTest) {
       const automatedTestExtensionDirectory = path.join(
         profileDirectory,
-        ".tab-recovery-automated-extension",
+        ".tablifeboat-automated-extension",
       );
       await cp(extensionDirectory, automatedTestExtensionDirectory, {
         recursive: true,
