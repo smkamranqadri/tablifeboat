@@ -133,7 +133,15 @@ a:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 }
 
 .button-ghost { border-color: transparent; color: var(--text-muted); }
-.button-danger:is(:hover, :focus-visible) { color: var(--danger); }
+.button { transition: background-color 120ms, border-color 120ms, color 120ms; }
+.button:not(:disabled):hover { background: var(--surface-subtle); }
+/* Mixing toward the text color darkens the accent in light and lightens it in dark. */
+.button-primary:not(:disabled):hover {
+  border-color: color-mix(in srgb, var(--accent) 85%, var(--text));
+  background: color-mix(in srgb, var(--accent) 85%, var(--text));
+}
+.button-ghost:not(:disabled):hover { color: var(--text); }
+.button-danger:not(:disabled):is(:hover, :focus-visible) { color: var(--danger); }
 .button:disabled { cursor: wait; opacity: 0.65; }
 .inline-error {
   margin: 0 0.75rem 0.75rem;
