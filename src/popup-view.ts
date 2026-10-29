@@ -127,6 +127,45 @@ function showFailure(container: HTMLElement, message: string): void {
   alert.textContent = message;
 }
 
+// A native confirm() is drawn by the browser at its own width and the popup
+// clips it, so confirmation lives inside the popup document.
+function confirmAction(message: string, confirmLabel: string): Promise<boolean> {
+  const dialog = requiredElement("dialog", "confirm-dialog");
+  const copy = requiredElement("p", "confirm-dialog-message");
+  copy.id = "confirm-dialog-message";
+  copy.textContent = message;
+  dialog.setAttribute("aria-labelledby", copy.id);
+  const dialogActions = requiredElement("div", "confirm-dialog-actions");
+  const cancel = requiredElement("button", "button");
+  cancel.type = "button";
+  cancel.textContent = "Cancel";
+  const confirm = requiredElement("button", "button button-primary");
+  confirm.type = "button";
+  confirm.textContent = confirmLabel;
+  dialogActions.append(cancel, confirm);
+  dialog.append(copy, dialogActions);
+
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (confirmed: boolean): void => {
+      if (settled) return;
+      settled = true;
+      dialog.close();
+      dialog.remove();
+      resolve(confirmed);
+    };
+    cancel.addEventListener("click", () => finish(false));
+    confirm.addEventListener("click", () => finish(true));
+    dialog.addEventListener("cancel", (event) => {
+      event.preventDefault();
+      finish(false);
+    });
+    document.body.append(dialog);
+    dialog.showModal();
+    cancel.focus();
+  });
+}
+
 function announceStatus(message: string): void {
   const status = document.querySelector<HTMLElement>("#popup-status");
   if (status) status.textContent = message;
@@ -386,7 +425,11 @@ function renderWindowGrouping(
     forgetWindowButton.type = "button";
     forgetWindowButton.textContent = "Forget Window";
     forgetWindowButton.addEventListener("click", async () => {
-      if (!window.confirm("Permanently forget this Window Grouping and all of its tabs?")) {
+      const confirmed = await confirmAction(
+        "Permanently forget this Window Grouping and all of its tabs?",
+        "Forget",
+      );
+      if (!confirmed) {
         return;
       }
 

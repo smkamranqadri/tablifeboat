@@ -384,11 +384,20 @@ test("Forget actions show pending feedback, remain retryable, and recover focus 
     await focusCard.getByRole("menuitem", { name: "Forget Tab: forget-first" }).click();
     await expect(focusCard.getByRole("button", { name: "Restore Window" })).toBeFocused();
 
-    popup.once("dialog", (dialog) => dialog.accept());
     const forgetWindow = focusCard.getByRole("button", { name: "Forget Window" });
-    const pendingWindow = await forgetWindow.evaluate((button: HTMLButtonElement) => {
+    await forgetWindow.click();
+    const confirmForget = popup
+      .getByRole("dialog", {
+        name: "Permanently forget this Window Grouping and all of its tabs?",
+      })
+      .getByRole("button", { name: "Forget" });
+    const pendingWindow = await confirmForget.evaluate(async (button: HTMLButtonElement) => {
+      const card = document.querySelector('[data-grouping-id="focus-forget"]')!;
+      const forget = card.querySelector<HTMLButtonElement>(".forget-window")!;
       button.click();
-      return { disabled: button.disabled, text: button.textContent };
+      // Confirmation resolves through a promise, so read after its microtasks.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      return { disabled: forget.disabled, text: forget.textContent };
     });
     expect(pendingWindow).toEqual({ disabled: true, text: "Forgetting…" });
     await expect(popup.locator("#popup-title")).toBeFocused();

@@ -106,20 +106,34 @@ test("Forget actions expose whole-group Forget only for an entirely missing Wind
     const windowGrouping = popup
       .locator(".missing-window-grouping")
       .filter({ hasText: "window-first-tab" });
-    popup.once("dialog", (dialog) => dialog.dismiss());
+    const forgetWindowDialog = popup.getByRole("dialog", {
+      name: "Permanently forget this Window Grouping and all of its tabs?",
+    });
     await windowGrouping.getByRole("button", { name: "Forget Window" }).click();
+    await forgetWindowDialog.getByRole("button", { name: "Cancel" }).click();
+    await expect(forgetWindowDialog).toHaveCount(0);
     await expect(windowGrouping.getByText("window-first-tab", { exact: true })).toBeVisible();
     await expect.poll(() => badgeText(extension.serviceWorker)).toBe("3");
 
     await popup.close();
     popup = await extension.openPopup();
     await expect(popup.getByText("window-first-tab", { exact: true })).toBeVisible();
-    popup.once("dialog", (dialog) => dialog.accept());
+    popup.on("dialog", async (dialog) => {
+      dialogs.push(dialog.message());
+      await dialog.dismiss();
+    });
     await popup
       .locator(".missing-window-grouping")
       .filter({ hasText: "window-first-tab" })
       .getByRole("button", { name: "Forget Window" })
       .click();
+    await popup
+      .getByRole("dialog", {
+        name: "Permanently forget this Window Grouping and all of its tabs?",
+      })
+      .getByRole("button", { name: "Forget" })
+      .click();
+    expect(dialogs).toEqual([]);
     await expect(popup.getByText("window-first-tab", { exact: true })).toHaveCount(0);
     await expect(popup.getByText("window-second-tab", { exact: true })).toHaveCount(0);
     await expect.poll(() => badgeText(extension.serviceWorker)).toBe("1");
