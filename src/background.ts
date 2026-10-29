@@ -8,6 +8,10 @@ import {
   restoreMissingTab,
   restoreWindowGrouping,
 } from "./manual-recovery.js";
+import {
+  findMissingTabsOpenElsewhere,
+  forgetMissingTabsOpenElsewhere,
+} from "./reconciliation-core.js";
 import { removeStartupMissingBacklog } from "./recovery-data-repair.js";
 import { RecoveryStore } from "./recovery-store.js";
 import {
@@ -254,6 +258,28 @@ async function forgetMissingWindowGrouping(groupingId: string) {
   return result;
 }
 
+async function countOpenMissingTabs() {
+  await awaitStartupReadiness();
+  const [set, openTabs] = await Promise.all([
+    store.read(),
+    chrome.tabs.query({ windowType: "normal" }),
+  ]);
+  return { openMissingCount: findMissingTabsOpenElsewhere(set, openTabs).length };
+}
+
+async function forgetOpenMissingTabs() {
+  await awaitStartupReadiness();
+  let forgottenCount = 0;
+  // Counted again inside the mutator: the set may have changed while the
+  // person read the confirmation.
+  const set = await store.update(async (current) => {
+    const openTabs = await chrome.tabs.query({ windowType: "normal" });
+    forgottenCount = forgetMissingTabsOpenElsewhere(current, openTabs);
+  });
+  await synchronizeRecoveryBadge(set);
+  return { forgottenCount };
+}
+
 startTabTracking(store);
 
 const startupReconciliation = scheduleStartupReconciliation(
@@ -370,6 +396,16 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) =
     typeof message.groupingId === "string"
   ) {
     void forgetMissingWindowGrouping(message.groupingId).then(sendResponse);
+    return true;
+  }
+
+  if (message.type === "countOpenMissingTabs") {
+    void countOpenMissingTabs().then(sendResponse);
+    return true;
+  }
+
+  if (message.type === "forgetOpenMissingTabs") {
+    void forgetOpenMissingTabs().then(sendResponse);
     return true;
   }
 

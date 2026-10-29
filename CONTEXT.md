@@ -48,6 +48,10 @@ _Avoid_: Close window, delete tabs
 An explicit user action that permanently removes one Missing Tab while preserving the rest of its Window Grouping.
 _Avoid_: Close tab, dismiss tab
 
+**Check Open Tabs**:
+An explicit, confirmed user action that forgets every Missing Tab whose address (ignoring its fragment) is currently open in any normal window. It is the deliberate exception to Missing Tab distinctness: any open tab at that address answers for it, whichever window holds it. It clears stale copies of a window that reconciliation could not pair with an open window.
+_Avoid_: Sync, dedupe, automatic cleanup
+
 **Failed Recovery**:
 A Manual Recovery attempt that did not reopen a Missing Tab. The tab remains in the Recovery Set and can be retried or explicitly forgotten.
 _Avoid_: Consumed tab, deleted recovery
@@ -69,5 +73,5 @@ A Web Tab's Window Grouping, position within that window, and pinned or unpinned
 _Avoid_: Tab state, page state
 
 **Recovery Popup**:
-The toolbar popup where the user inspects missing windows, starts Manual Recovery, and uses Forget Window. It omits currently open tabs except for a protected-tab count.
+The toolbar popup where the user inspects missing windows, starts Manual Recovery, and uses Forget Window or Check Open Tabs. It omits currently open tabs except for a protected-tab count.
 _Avoid_: Dashboard, recovery page

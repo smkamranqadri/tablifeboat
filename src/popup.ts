@@ -2,7 +2,9 @@ import {
   hideFirstRunExplainer,
   initFirstRunExplainer,
   renderRecoveryPopup,
+  type ForgetOpenResult,
   type ForgetResult,
+  type OpenMissingCount,
   type PopupActions,
   type RecoveryNotice,
   type RecoverySummary,
@@ -71,6 +73,8 @@ const actions: PopupActions = {
   forgetWindow: (groupingId) =>
     send<ForgetResult>({ type: "forgetWindowGrouping", groupingId }),
   forgetTab: (recordId) => send<ForgetResult>({ type: "forgetTab", recordId }),
+  countOpenMissingTabs: () => send<OpenMissingCount>({ type: "countOpenMissingTabs" }),
+  forgetOpenMissingTabs: () => send<ForgetOpenResult>({ type: "forgetOpenMissingTabs" }),
   refresh,
 };
 

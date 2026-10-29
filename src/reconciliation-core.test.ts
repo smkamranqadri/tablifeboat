@@ -7,6 +7,8 @@ import type {
 import {
   countAddressOccurrenceOverlap,
   findGloballyOptimalAssignment,
+  findMissingTabsOpenElsewhere,
+  forgetMissingTabsOpenElsewhere,
   matchTrackedTabsToOpenTabs,
   maximizeSquareAssignment,
   reconcileWindows,
@@ -409,5 +411,59 @@ describe("reconcileWindows", () => {
     expect(tabs.map((tab) => tab.recordId)).toEqual(["r1", "r2"]);
     expect(tabs[0]!.browserTabId).toBe(100);
     expect(tabs[1]!.browserTabId).toBeUndefined();
+  });
+});
+
+describe("forgetMissingTabsOpenElsewhere", () => {
+  it("forgets only Missing Tabs whose address is open in any window", () => {
+    const set = recoverySet([
+      grouping(
+        "live",
+        [tracked("live-a", A, { browserTabId: 100 }), tracked("live-b", B, { browserTabId: 101 })],
+        { browserWindowId: 5 },
+      ),
+      grouping("stale-copy", [
+        tracked("stale-a", A, { missingReason: "startup" }),
+        tracked("stale-b", `${B}#later`, { missingReason: "startup" }),
+        tracked("stale-a-again", A, { missingReason: "startup" }),
+      ]),
+      grouping("closed", [
+        tracked("closed-c", C, { missingReason: "window-closure" }),
+        tracked("closed-d", D, { missingReason: "window-closure" }),
+      ]),
+    ]);
+    const open = [
+      openTab(100, A, { windowId: 5 }),
+      openTab(101, B, { windowId: 5 }),
+      openTab(102, C, { windowId: 6 }),
+      openTab(103, D, { windowId: 7, incognito: true }),
+    ];
+
+    expect(findMissingTabsOpenElsewhere(set, open)).toEqual([
+      "stale-a",
+      "stale-b",
+      "stale-a-again",
+      "closed-c",
+    ]);
+    expect(forgetMissingTabsOpenElsewhere(set, open)).toBe(4);
+    expect(
+      set.windows.map((candidate) => [
+        candidate.groupingId,
+        candidate.tabs.map((tab) => tab.recordId),
+      ]),
+    ).toEqual([
+      ["live", ["live-a", "live-b"]],
+      ["closed", ["closed-d"]],
+    ]);
+  });
+
+  it("changes nothing when no Missing Tab is open", () => {
+    const set = recoverySet([
+      grouping("g0", [tracked("r0", A, { missingReason: "startup" })]),
+    ]);
+    const before = structuredClone(set);
+
+    expect(forgetMissingTabsOpenElsewhere(set, [openTab(100, Z)])).toBe(0);
+    expect(set).toEqual(before);
   });
 });

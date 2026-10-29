@@ -323,3 +323,38 @@ export function matchTrackedTabsToOpenTabs(
   }
   return matches;
 }
+
+// A person checking open tabs asks a looser question than reconciliation does:
+// any open tab at the same address answers for a Missing Tab, whichever window
+// holds it and however many records share that address.
+export function findMissingTabsOpenElsewhere(
+  set: RecoverySet,
+  openTabs: chrome.tabs.Tab[],
+): string[] {
+  const openAddresses = new Set(
+    openTabs.flatMap((tab) => {
+      const address = webTabAddress(tab);
+      return address === undefined ? [] : [comparableAddress(address)];
+    }),
+  );
+  return set.windows.flatMap((grouping) =>
+    grouping.tabs.flatMap((tab) =>
+      tab.browserTabId === undefined &&
+      openAddresses.has(comparableAddress(tab.url))
+        ? [tab.recordId]
+        : [],
+    ),
+  );
+}
+
+export function forgetMissingTabsOpenElsewhere(
+  set: RecoverySet,
+  openTabs: chrome.tabs.Tab[],
+): number {
+  const forgotten = new Set(findMissingTabsOpenElsewhere(set, openTabs));
+  for (const grouping of set.windows) {
+    grouping.tabs = grouping.tabs.filter((tab) => !forgotten.has(tab.recordId));
+  }
+  set.windows = set.windows.filter((grouping) => grouping.tabs.length > 0);
+  return forgotten.size;
+}

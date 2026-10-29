@@ -26,8 +26,16 @@ export interface ForgetResult {
   reason?: string;
 }
 
+export interface OpenMissingCount {
+  openMissingCount: number;
+}
+
+export interface ForgetOpenResult {
+  forgottenCount: number;
+}
+
 export type RecoveryNotice =
-  | { scope: "summary"; message: string }
+  | { scope: "summary"; message: string; tone?: "info" }
   | { scope: "grouping"; groupingId: string; message: string }
   | { scope: "tab"; recordId: string; message: string };
 
@@ -37,6 +45,8 @@ export interface PopupActions {
   restoreTab(recordId: string): Promise<RestoreResult>;
   forgetWindow(groupingId: string): Promise<ForgetResult>;
   forgetTab(recordId: string): Promise<ForgetResult>;
+  countOpenMissingTabs(): Promise<OpenMissingCount>;
+  forgetOpenMissingTabs(): Promise<ForgetOpenResult>;
   refresh(notice?: RecoveryNotice): Promise<void>;
 }
 
@@ -103,7 +113,7 @@ function requiredElement<K extends keyof HTMLElementTagNameMap>(
 function setPending(
   button: HTMLButtonElement,
   pending: boolean,
-  pendingLabel: "Restoring…" | "Forgetting…",
+  pendingLabel: "Restoring…" | "Forgetting…" | "Checking…",
 ): void {
   if (pending) {
     button.dataset.idleLabel = button.textContent ?? "";
@@ -164,6 +174,13 @@ function confirmAction(message: string, confirmLabel: string): Promise<boolean> 
     dialog.showModal();
     cancel.focus();
   });
+}
+
+function showNote(container: HTMLElement, message: string): void {
+  const note = requiredElement("p", "inline-note");
+  note.role = "status";
+  note.textContent = message;
+  container.append(note);
 }
 
 function announceStatus(message: string): void {
@@ -256,8 +273,52 @@ function renderSummary(summary: RecoverySummary, actions: PopupActions): HTMLEle
       setPending(restoreAll, false, pendingLabel);
     }
   });
-  section.append(text, restoreAll);
+  const summaryActions = requiredElement("div", "summary-actions");
+  summaryActions.append(renderCheckOpenTabs(section, actions), restoreAll);
+  section.append(text, summaryActions);
   return section;
+}
+
+function renderCheckOpenTabs(section: HTMLElement, actions: PopupActions): HTMLButtonElement {
+  const check = requiredElement("button", "button check-open-tabs");
+  check.type = "button";
+  check.textContent = "Check open tabs";
+  check.addEventListener("click", async () => {
+    const pendingLabel = "Checking…" as const;
+    setPending(check, true, pendingLabel);
+    announceStatus("Checking missing tabs against open tabs");
+    try {
+      const { openMissingCount } = await actions.countOpenMissingTabs();
+      if (openMissingCount === 0) {
+        await actions.refresh({
+          scope: "summary",
+          tone: "info",
+          message: "None of the missing tabs are open",
+        });
+        announceStatus("None of the missing tabs are open");
+        return;
+      }
+      const noun = `${openMissingCount} missing ${plural(openMissingCount, "tab")}`;
+      const verb = openMissingCount === 1 ? "is" : "are";
+      const confirmed = await confirmAction(
+        `Forget ${noun} that ${verb} already open in a window?`,
+        "Forget",
+      );
+      if (!confirmed) {
+        announceStatus("Nothing was forgotten");
+        return;
+      }
+      const { forgottenCount } = await actions.forgetOpenMissingTabs();
+      const message = `Forgot ${forgottenCount} ${plural(forgottenCount, "tab")} already open`;
+      await refreshAndRestoreFocus(actions, { scope: "summary", tone: "info", message });
+      announceStatus(message);
+    } catch (error: unknown) {
+      showFailure(section, "Could not check open tabs");
+    } finally {
+      setPending(check, false, pendingLabel);
+    }
+  });
+  return check;
 }
 
 function renderTabMenu(
@@ -490,5 +551,10 @@ function renderNotice(root: HTMLElement, notice?: RecoveryNotice): void {
         ? `[data-grouping-id="${CSS.escape(notice.groupingId)}"]`
         : `[data-record-id="${CSS.escape(notice.recordId)}"]`;
   const scope = root.querySelector<HTMLElement>(selector);
-  if (scope) showFailure(scope, notice.message);
+  if (!scope) return;
+  if (notice.scope === "summary" && notice.tone === "info") {
+    showNote(scope, notice.message);
+    return;
+  }
+  showFailure(scope, notice.message);
 }
