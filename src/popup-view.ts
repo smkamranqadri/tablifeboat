@@ -82,25 +82,6 @@ export function hideFirstRunExplainer(): void {
   if (explainer) explainer.hidden = true;
 }
 
-let openMenuButton: HTMLButtonElement | undefined;
-
-function closeOpenMenu(returnFocus: boolean): void {
-  if (!openMenuButton) return;
-  const menuId = openMenuButton.getAttribute("aria-controls");
-  const menu = menuId ? document.getElementById(menuId) : null;
-  openMenuButton.setAttribute("aria-expanded", "false");
-  if (menu instanceof HTMLElement) menu.hidden = true;
-  const button = openMenuButton;
-  openMenuButton = undefined;
-  if (returnFocus) button.focus();
-}
-
-document.addEventListener("pointerdown", (event) => {
-  if (event.target instanceof Element && !event.target.closest(".tab-menu")) {
-    closeOpenMenu(false);
-  }
-});
-
 function requiredElement<K extends keyof HTMLElementTagNameMap>(
   tagName: K,
   className?: string,
@@ -321,30 +302,15 @@ function renderCheckOpenTabs(section: HTMLElement, actions: PopupActions): HTMLB
   return check;
 }
 
-function renderTabMenu(
+function renderForgetTab(
   tab: TrackedTabSummary,
   groupingId: string,
   actions: PopupActions,
   row: HTMLElement,
-): HTMLElement {
-  const wrapper = requiredElement("div", "tab-menu");
-  const button = requiredElement("button", "button button-ghost tab-menu-trigger");
-  const menu = requiredElement("div", "tab-menu-content");
-  const menuId = `tab-menu-${tab.recordId}`;
-  button.type = "button";
-  button.textContent = "More";
-  button.setAttribute("aria-label", `More actions for ${tab.title}`);
-  button.setAttribute("aria-haspopup", "menu");
-  button.setAttribute("aria-expanded", "false");
-  button.setAttribute("aria-controls", menuId);
-  menu.id = menuId;
-  menu.role = "menu";
-  menu.hidden = true;
-
-  const forget = requiredElement("button", "tab-menu-item");
+): HTMLButtonElement {
+  const forget = requiredElement("button", "button button-ghost button-danger forget-tab");
   forget.type = "button";
-  forget.role = "menuitem";
-  forget.textContent = "Forget tab";
+  forget.textContent = "Forget";
   forget.setAttribute("aria-label", `Forget Tab: ${tab.title}`);
   forget.addEventListener("click", async () => {
     const pendingLabel = "Forgetting…" as const;
@@ -364,37 +330,7 @@ function renderTabMenu(
       setPending(forget, false, pendingLabel);
     }
   });
-
-  button.addEventListener("click", () => {
-    const opening = button.getAttribute("aria-expanded") === "false";
-    closeOpenMenu(false);
-    if (opening) {
-      button.setAttribute("aria-expanded", "true");
-      menu.hidden = false;
-      openMenuButton = button;
-      forget.focus();
-    }
-  });
-  button.addEventListener("keydown", (event) => {
-    if (["ArrowDown", "ArrowUp"].includes(event.key)) {
-      event.preventDefault();
-      button.click();
-    }
-  });
-  menu.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      closeOpenMenu(true);
-      return;
-    }
-    if (event.key === "ArrowUp" || event.key === "ArrowDown") {
-      event.preventDefault();
-      forget.focus();
-    }
-  });
-  wrapper.append(button, menu);
-  menu.append(forget);
-  return wrapper;
+  return forget;
 }
 
 function renderWindowGrouping(
@@ -450,7 +386,7 @@ function renderWindowGrouping(
       }
     });
 
-    tabActions.append(restoreTabButton, renderTabMenu(tab, grouping.groupingId, actions, row));
+    tabActions.append(restoreTabButton, renderForgetTab(tab, grouping.groupingId, actions, row));
     row.append(tabCopy, tabActions);
     section.append(row);
   }

@@ -88,10 +88,7 @@ test("Forget actions expose whole-group Forget only for an entirely missing Wind
       partialWindowGrouping.getByRole("button", { name: "Forget Window" }),
     ).toHaveCount(0);
     await partialWindowGrouping
-      .getByRole("button", { name: "More actions for forget-this-tab" })
-      .click();
-    await partialWindowGrouping
-      .getByRole("menuitem", { name: "Forget Tab: forget-this-tab" })
+      .getByRole("button", { name: "Forget Tab: forget-this-tab" })
       .click();
     expect(dialogs).toEqual([]);
     await expect(popup.getByText("forget-this-tab", { exact: true })).toHaveCount(0);

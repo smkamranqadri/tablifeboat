@@ -116,18 +116,13 @@ test("the Recovery Popup presents missing tabs by Window first", async () => {
     );
     expect(darkBackground).not.toBe(lightBackground);
 
-    const moreActions = popup.getByRole("button", {
-      name: "More actions for Project notes",
+    const forgetTab = popup.getByRole("button", {
+      name: "Forget Tab: Project notes",
     });
-    await expect(moreActions).toHaveAttribute("aria-expanded", "false");
-    await moreActions.click();
-    await expect(moreActions).toHaveAttribute("aria-expanded", "true");
-    await expect(
-      popup.getByRole("menuitem", { name: "Forget Tab: Project notes" }),
-    ).toBeVisible();
-    await popup.keyboard.press("Escape");
-    await expect(moreActions).toBeFocused();
-    await expect(moreActions).toHaveAttribute("aria-expanded", "false");
+    await expect(forgetTab).toHaveText(/^Forget$/);
+    await expect(popup.getByRole("button", { name: /^More/ })).toHaveCount(0);
+    await expect(popup.getByRole("menu")).toHaveCount(0);
+    await forgetTab.focus();
 
     const focusOrder: Array<{ label: string | null; hidden: boolean }> = [];
     for (let index = 0; index < 3; index += 1) {
@@ -149,10 +144,10 @@ test("the Recovery Popup presents missing tabs by Window first", async () => {
       { label: "Restore All", hidden: false },
       { label: "Project notes", hidden: false },
       { label: "Restore Tab: Project notes", hidden: false },
-      { label: "More actions for Project notes", hidden: false },
+      { label: "Forget Tab: Project notes", hidden: false },
       { label: "Quarterly roadmap", hidden: false },
       { label: "Restore Tab: Quarterly roadmap", hidden: false },
-      { label: "More actions for Quarterly roadmap", hidden: false },
+      { label: "Forget Tab: Quarterly roadmap", hidden: false },
       { label: "Restore Window", hidden: false },
       { label: "Forget Window", hidden: false },
     ]);
@@ -365,8 +360,7 @@ test("Forget actions show pending feedback, remain retryable, and recover focus 
 
     await setTabOpenState(extension.serviceWorker, "retry-forget-tab", 1);
     const retryCard = popup.locator('[data-grouping-id="retry-forget"]');
-    await retryCard.getByRole("button", { name: "More actions for retry-forget-tab" }).click();
-    const retryForget = retryCard.getByRole("menuitem", { name: "Forget Tab: retry-forget-tab" });
+    const retryForget = retryCard.getByRole("button", { name: "Forget Tab: retry-forget-tab" });
     const pending = await retryForget.evaluate((button: HTMLButtonElement) => {
       button.click();
       return { disabled: button.disabled, text: button.textContent };
@@ -380,8 +374,7 @@ test("Forget actions show pending feedback, remain retryable, and recover focus 
     await expect(retryCard).toHaveCount(0);
 
     const focusCard = popup.locator('[data-grouping-id="focus-forget"]');
-    await focusCard.getByRole("button", { name: "More actions for forget-first" }).click();
-    await focusCard.getByRole("menuitem", { name: "Forget Tab: forget-first" }).click();
+    await focusCard.getByRole("button", { name: "Forget Tab: forget-first" }).click();
     await expect(focusCard.getByRole("button", { name: "Restore Window" })).toBeFocused();
 
     const forgetWindow = focusCard.getByRole("button", { name: "Forget Window" });
